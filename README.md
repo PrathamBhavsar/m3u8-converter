@@ -100,16 +100,18 @@ input_directory/
 output_directory/
 ├── folder1/
 │   ├── video/
-│   │   ├── video.m3u8
-│   │   ├── init.mp4
-│   │   ├── video0.m4s
-│   │   ├── video1.m4s
+│   │   ├── video.m3u8      (HLS playlist)
+│   │   ├── init.mp4        (⚠️ REQUIRED initialization segment)
+│   │   ├── video1.m4s      (video segment 1)
+│   │   ├── video2.m4s      (video segment 2)
 │   │   └── ...
 │   ├── thumbnail.jpg
 │   └── metadata.json
 └── folder2/
     └── ...
 ```
+
+**Important:** The `init.mp4` file is REQUIRED for HLS playback. If this file is missing or empty (0 bytes), the video will not play.
 
 ### With Compression
 
@@ -169,7 +171,72 @@ After processing, the converter displays:
 - Graceful error handling
 - Keyboard interrupt support (Ctrl+C)
 
+## Verifying Output
+
+After conversion, verify your output is correct:
+
+### Quick Check Script
+
+```bash
+# Check all folders in output directory
+python check_output.py U:\testoutput
+
+# Or on macOS/Linux
+python3 check_output.py /path/to/output
+```
+
+This will show you which folders have valid init.mp4 files and which need to be re-converted.
+
+### Manual Verification
+
+For each converted folder, check:
+
+1. **init.mp4 exists and is NOT empty:**
+   ```bash
+   # Windows
+   dir U:\testoutput\folder1\video\init.mp4
+   
+   # macOS/Linux
+   ls -lh /path/to/output/folder1/video/init.mp4
+   ```
+   
+   The file should be 1-5 KB (NOT 0 bytes!)
+
+2. **Playlist references init.mp4:**
+   ```bash
+   # Windows
+   type U:\testoutput\folder1\video\video.m3u8 | findstr init
+   
+   # macOS/Linux
+   grep init /path/to/output/folder1/video/video.m3u8
+   ```
+   
+   Should show: `#EXT-X-MAP:URI="init.mp4"`
+
+3. **Test playback:**
+   ```bash
+   cd U:\testoutput\folder1\video
+   ffplay video.m3u8
+   ```
+
+### Diagnostic Tool
+
+For detailed diagnostics of a specific folder:
+
+```bash
+python diagnose_hls.py U:\testoutput\folder1\video
+```
+
 ## Troubleshooting
+
+### init.mp4 is missing or empty
+- **Symptom:** Video won't play, FFplay shows "Failed to open initialization section"
+- **Cause:** FFmpeg conversion failed or was interrupted
+- **Solution:** 
+  1. Delete the output folder
+  2. Re-run the conversion
+  3. Check logs for FFmpeg errors
+  4. Verify input MP4 is valid
 
 ### FFmpeg not found
 - Ensure FFmpeg is installed and in your system PATH

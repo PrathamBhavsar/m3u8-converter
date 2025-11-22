@@ -40,6 +40,9 @@ class StatsSummary:
     total_output_gb: float
     successful_conversions: int
     failed_conversions: int
+    skipped_folders: int
+    skipped_no_mp4: int
+    skipped_multiple_mp4: int
     compression_ratio: float
 
 
@@ -99,25 +102,35 @@ class FileProcessor:
             logging.error(f"Error scanning input directory {self.input_dir}: {e}", exc_info=True)
             return []
     
-    def has_mp4_file(self, folder: Path) -> bool:
+    def has_single_mp4_file(self, folder: Path) -> tuple[bool, str]:
         """
-        Check if a folder contains MP4 files.
+        Check if a folder contains exactly one MP4 file.
         
         Args:
             folder: Path to the folder to check
             
         Returns:
-            True if folder contains at least one .mp4 file, False otherwise
+            Tuple of (is_valid: bool, reason: str)
+            - (True, "valid") if folder has exactly 1 MP4 file
+            - (False, "no_mp4") if folder has no MP4 files
+            - (False, "multiple_mp4") if folder has multiple MP4 files
         """
         try:
             mp4_files = list(folder.glob("*.mp4"))
-            has_mp4 = len(mp4_files) > 0
-            if has_mp4:
-                logging.debug(f"Folder {folder.name} contains {len(mp4_files)} MP4 file(s)")
-            return has_mp4
+            mp4_count = len(mp4_files)
+            
+            if mp4_count == 0:
+                logging.debug(f"Folder {folder.name} contains no MP4 files - skipping")
+                return False, "no_mp4"
+            elif mp4_count == 1:
+                logging.debug(f"Folder {folder.name} contains 1 MP4 file - valid")
+                return True, "valid"
+            else:
+                logging.warning(f"Folder {folder.name} contains {mp4_count} MP4 files - skipping (only 1 allowed)")
+                return False, "multiple_mp4"
         except Exception as e:
             logging.error(f"Error checking for MP4 files in {folder}: {e}")
-            return False
+            return False, "error"
     
     def get_mp4_file(self, folder: Path) -> Optional[Path]:
         """
@@ -127,16 +140,19 @@ class FileProcessor:
             folder: Path to the folder containing MP4 file
             
         Returns:
-            Path to the first MP4 file found, or None if no MP4 file exists
+            Path to the MP4 file, or None if no MP4 file exists or multiple exist
         """
         try:
             mp4_files = list(folder.glob("*.mp4"))
-            if mp4_files:
+            if len(mp4_files) == 1:
                 mp4_file = mp4_files[0]
                 logging.debug(f"Found MP4 file: {mp4_file}")
                 return mp4_file
-            else:
+            elif len(mp4_files) == 0:
                 logging.warning(f"No MP4 file found in {folder}")
+                return None
+            else:
+                logging.warning(f"Multiple MP4 files found in {folder} - skipping")
                 return None
         except Exception as e:
             logging.error(f"Error retrieving MP4 file from {folder}: {e}")
@@ -301,39 +317,46 @@ class VideoConverter:
         """
         Construct FFmpeg command with HLS parameters.
         
+        NOTE: This command is designed to be run from the video/ subdirectory
+        as the working directory, so all output paths are relative.
+        
         Args:
-            input_mp4: Path to the input MP4 file
+            input_mp4: Path to the input MP4 file (absolute path)
             output_dir: Path to the output directory (should contain "video" subdirectory)
             
         Returns:
             List of command arguments for subprocess execution
         """
-        video_dir = output_dir / "video"
-        playlist_path = video_dir / "video.m3u8"
-        
+        # Since we run FFmpeg from the video/ directory, use relative paths for output
+        # but absolute path for input
         command = [
             "ffmpeg",
-            "-i", str(input_mp4),
+            "-y",  # Overwrite output files without asking
+            "-i", str(input_mp4.absolute()),  # Use absolute path for input
             "-c:v", "libx264",  # Video codec
             "-c:a", "aac",      # Audio codec
             "-f", "hls",        # Output format: HLS
             "-hls_time", str(self.segment_duration),  # Segment duration
             "-hls_playlist_type", "vod",  # Video on demand playlist
             "-hls_segment_type", "fmp4",  # Fragmented MP4 segments
-            "-hls_fmp4_init_filename", "init.mp4",  # Initialization file
-            "-hls_segment_filename", str(video_dir / "video%d.m4s"),  # Segment filename pattern
-            str(playlist_path)  # Output playlist file
+            "-hls_fmp4_init_filename", "init.mp4",  # Relative path - will be created in cwd
+            "-hls_segment_filename", "video%d.m4s",  # Relative path - will be created in cwd
+            "-hls_flags", "independent_segments",  # Ensure proper segment independence
+            "-start_number", "1",  # Start segment numbering from 1 instead of 0
+            "video.m3u8"  # Relative path - will be created in cwd
         ]
         
         logging.debug(f"Built FFmpeg command: {' '.join(command)}")
+        logging.debug(f"Command will run from video/ subdirectory with relative output paths")
         return command
     
-    def _execute_ffmpeg(self, command: List[str]) -> tuple[bool, str]:
+    def _execute_ffmpeg(self, command: List[str], working_dir: Path = None) -> tuple[bool, str]:
         """
         Run FFmpeg command via subprocess.
         
         Args:
             command: List of command arguments
+            working_dir: Optional working directory for FFmpeg execution
             
         Returns:
             Tuple of (success: bool, output: str)
@@ -362,23 +385,32 @@ class VideoConverter:
             # Execute FFmpeg command
             logging.info("Executing FFmpeg conversion...")
             logging.debug(f"FFmpeg command: {' '.join(command)}")
+            if working_dir:
+                logging.debug(f"Working directory: {working_dir}")
             
             result = subprocess.run(
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=3600  # 1 hour timeout for large files
+                timeout=3600,  # 1 hour timeout for large files
+                cwd=str(working_dir) if working_dir else None  # Set working directory
             )
             
             # Log FFmpeg output for debugging
             if result.stdout:
                 logging.debug(f"FFmpeg stdout: {result.stdout[:500]}")  # First 500 chars
             if result.stderr:
-                logging.debug(f"FFmpeg stderr: {result.stderr[:500]}")  # First 500 chars
+                logging.debug(f"FFmpeg stderr (first 500 chars): {result.stderr[:500]}")
+                # Log full stderr if there's an error
+                if result.returncode != 0:
+                    logging.error(f"FFmpeg full stderr: {result.stderr}")
             
             if result.returncode == 0:
                 logging.info("FFmpeg conversion completed successfully")
+                # Log the full stderr for successful conversions too (contains useful info)
+                if result.stderr:
+                    logging.debug(f"FFmpeg full output: {result.stderr}")
                 return True, result.stderr
             else:
                 error_msg = f"FFmpeg failed with return code {result.returncode}"
@@ -452,8 +484,9 @@ class VideoConverter:
             init_file = video_dir / "init.mp4"
             
             # Build and execute FFmpeg command
+            # Run FFmpeg with video_dir as working directory so relative paths work correctly
             command = self._build_ffmpeg_command(input_mp4, output_dir)
-            success, output = self._execute_ffmpeg(command)
+            success, output = self._execute_ffmpeg(command, working_dir=video_dir)
             
             if not success:
                 logging.error(f"Conversion failed for {input_mp4.name}")
@@ -468,7 +501,12 @@ class VideoConverter:
             
             # Collect segment files
             try:
-                logging.debug(f"Collecting segment files from {video_dir}")
+                logging.debug(f"Collecting output files from {video_dir}")
+                
+                # List ALL files created in video_dir for debugging
+                all_files = list(video_dir.iterdir()) if video_dir.exists() else []
+                logging.debug(f"Files in video directory: {[f.name for f in all_files]}")
+                
                 segment_files = sorted(video_dir.glob("video*.m4s"))
                 
                 if not segment_files:
@@ -485,6 +523,37 @@ class VideoConverter:
                 
                 logging.info(f"Conversion successful: generated {len(segment_files)} segments")
                 logging.debug(f"Segment files: {[f.name for f in segment_files]}")
+                
+                # Verify init.mp4 was created and has content
+                if init_file.exists():
+                    init_size = init_file.stat().st_size
+                    logging.info(f"Init file created: {init_file.name} ({init_size} bytes)")
+                    if init_size == 0:
+                        error_msg = "Init file was created but is empty"
+                        logging.error(error_msg)
+                        return ConversionResult(
+                            success=False,
+                            output_path=output_dir,
+                            playlist_file=playlist_file,
+                            init_file=init_file,
+                            segment_files=segment_files,
+                            error_message=error_msg
+                        )
+                else:
+                    error_msg = "Init file was not created by FFmpeg"
+                    logging.error(error_msg)
+                    return ConversionResult(
+                        success=False,
+                        output_path=output_dir,
+                        playlist_file=playlist_file,
+                        init_file=init_file,
+                        segment_files=segment_files,
+                        error_message=error_msg
+                    )
+                
+                # Log segment file sizes
+                total_segment_size = sum(f.stat().st_size for f in segment_files)
+                logging.debug(f"Total segment size: {total_segment_size / (1024*1024):.2f} MB")
                 
                 return ConversionResult(
                     success=True,
@@ -719,8 +788,33 @@ class Validator:
                 error_message=error_msg
             )
         
-        # Step 3: Check if all segment files exist
-        # Verify init file exists
+        # Step 3: Check if init.mp4 exists and is not empty
+        if not conversion_result.init_file.exists():
+            error_msg = f"Initialization file missing: {conversion_result.init_file}"
+            logging.error(error_msg)
+            return ValidationResult(
+                valid=False,
+                playlist_valid=True,
+                segments_valid=False,
+                ffmpeg_playable=False,
+                error_message=error_msg
+            )
+        
+        init_size = conversion_result.init_file.stat().st_size
+        if init_size == 0:
+            error_msg = f"Initialization file is empty: {conversion_result.init_file}"
+            logging.error(error_msg)
+            return ValidationResult(
+                valid=False,
+                playlist_valid=True,
+                segments_valid=False,
+                ffmpeg_playable=False,
+                error_message=error_msg
+            )
+        
+        logging.debug(f"Init file validated: {conversion_result.init_file.name} ({init_size} bytes)")
+        
+        # Step 4: Check if all segment files exist
         all_files = [conversion_result.init_file] + conversion_result.segment_files
         segments_valid = self._check_segments_exist(all_files)
         
@@ -735,7 +829,7 @@ class Validator:
                 error_message=error_msg
             )
         
-        # Step 4: Validate with FFmpeg
+        # Step 5: Validate with FFmpeg
         ffmpeg_playable = self._validate_with_ffmpeg(conversion_result.playlist_file)
         
         if not ffmpeg_playable:
@@ -858,6 +952,8 @@ class StatsTracker:
         self._total_output_bytes = 0
         self._successful_conversions = 0
         self._failed_conversions = 0
+        self._skipped_no_mp4 = 0
+        self._skipped_multiple_mp4 = 0
         logging.info("StatsTracker initialized")
     
     def add_source_size(self, size_bytes: int) -> None:
@@ -890,6 +986,16 @@ class StatsTracker:
         self._failed_conversions += 1
         logging.debug(f"Recorded failed conversion (total: {self._failed_conversions})")
     
+    def record_skipped_no_mp4(self) -> None:
+        """Record a folder skipped due to no MP4 files."""
+        self._skipped_no_mp4 += 1
+        logging.debug(f"Recorded skipped folder (no MP4): {self._skipped_no_mp4}")
+    
+    def record_skipped_multiple_mp4(self) -> None:
+        """Record a folder skipped due to multiple MP4 files."""
+        self._skipped_multiple_mp4 += 1
+        logging.debug(f"Recorded skipped folder (multiple MP4): {self._skipped_multiple_mp4}")
+    
     def get_summary(self) -> StatsSummary:
         """
         Return StatsSummary with GB conversions.
@@ -913,6 +1019,9 @@ class StatsTracker:
             total_output_gb=total_output_gb,
             successful_conversions=self._successful_conversions,
             failed_conversions=self._failed_conversions,
+            skipped_folders=self._skipped_no_mp4 + self._skipped_multiple_mp4,
+            skipped_no_mp4=self._skipped_no_mp4,
+            skipped_multiple_mp4=self._skipped_multiple_mp4,
             compression_ratio=compression_ratio
         )
     
@@ -928,14 +1037,20 @@ class StatsTracker:
         print(f"Compression Ratio:        {summary.compression_ratio:.2%}")
         print(f"Successful Conversions:   {summary.successful_conversions}")
         print(f"Failed Conversions:       {summary.failed_conversions}")
-        print(f"Total Conversions:        {summary.successful_conversions + summary.failed_conversions}")
+        print(f"Skipped Folders:          {summary.skipped_folders}")
+        if summary.skipped_no_mp4 > 0:
+            print(f"  - No MP4 files:         {summary.skipped_no_mp4}")
+        if summary.skipped_multiple_mp4 > 0:
+            print(f"  - Multiple MP4 files:   {summary.skipped_multiple_mp4}")
+        print(f"Total Processed:          {summary.successful_conversions + summary.failed_conversions + summary.skipped_folders}")
         print("=" * 60 + "\n")
         
         logging.info(
             f"Statistics: {summary.total_source_gb:.2f} GB source, "
             f"{summary.total_output_gb:.2f} GB output, "
             f"{summary.successful_conversions} successful, "
-            f"{summary.failed_conversions} failed"
+            f"{summary.failed_conversions} failed, "
+            f"{summary.skipped_folders} skipped"
         )
 
 
@@ -1174,23 +1289,33 @@ def main():
             stats.print_summary()
             return 0
         
-        # Filter folders using has_mp4_file() to skip folders without MP4s
-        folders_with_mp4 = [
-            folder for folder in source_folders 
-            if file_processor.has_mp4_file(folder)
-        ]
+        # Filter folders - only process folders with exactly 1 MP4 file
+        valid_folders = []
+        for folder in source_folders:
+            is_valid, reason = file_processor.has_single_mp4_file(folder)
+            if is_valid:
+                valid_folders.append(folder)
+            elif reason == "no_mp4":
+                logger.info(f"Skipping {folder.name}: No MP4 files found")
+                stats.record_skipped_no_mp4()
+            elif reason == "multiple_mp4":
+                logger.warning(f"Skipping {folder.name}: Multiple MP4 files found (only 1 allowed)")
+                stats.record_skipped_multiple_mp4()
         
-        if not folders_with_mp4:
-            logger.warning("No folders with MP4 files found")
+        if not valid_folders:
+            logger.warning("No valid folders to process (folders must contain exactly 1 MP4 file)")
             stats.print_summary()
             return 0
         
-        logger.info(f"Found {len(folders_with_mp4)} folders with MP4 files to process")
+        skipped_count = len(source_folders) - len(valid_folders)
+        logger.info(f"Found {len(valid_folders)} valid folders to process")
+        if skipped_count > 0:
+            logger.info(f"Skipped {skipped_count} folders (see details above)")
         
-        # Iterate through each folder with MP4 files
-        for idx, folder in enumerate(folders_with_mp4, 1):
+        # Iterate through each valid folder
+        for idx, folder in enumerate(valid_folders, 1):
             logger.info("=" * 60)
-            logger.info(f"Processing folder {idx}/{len(folders_with_mp4)}: {folder.name}")
+            logger.info(f"Processing folder {idx}/{len(valid_folders)}: {folder.name}")
             logger.info("=" * 60)
             
             try:
