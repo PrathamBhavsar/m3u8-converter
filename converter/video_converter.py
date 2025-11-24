@@ -221,8 +221,15 @@ class VideoConverter:
             
             logging.info(f"Will encode {len(encoding_profiles)} quality levels: {[p.name for p in encoding_profiles]}")
             
-            # Step 2: Encode each quality level
+            # Step 2: Encode audio separately
             encoder = HLSEncoder(segment_duration=self.segment_duration)
+            logging.info("Encoding audio track...")
+            audio_success = encoder.encode_audio(input_mp4, video_dir, audio_bitrate="128k")
+            
+            if not audio_success:
+                logging.warning("Failed to encode audio, continuing with video-only")
+            
+            # Step 3: Encode each quality level (video only)
             encoded_profiles = []
             all_segment_files = []
             
@@ -252,9 +259,16 @@ class VideoConverter:
                     error_message=error_msg
                 )
             
-            # Step 3: Create master playlist
+            # Add audio segments to the list if audio was encoded
+            if audio_success:
+                audio_dir = output_dir / "audio"
+                audio_segments = list(audio_dir.glob("audio*.m4s"))
+                all_segment_files.extend(audio_segments)
+                logging.info(f"Added {len(audio_segments)} audio segments")
+            
+            # Step 4: Create master playlist
             logging.info("Creating master playlist...")
-            master_success = encoder.create_master_playlist(video_dir, encoded_profiles)
+            master_success = encoder.create_master_playlist(video_dir, encoded_profiles, has_audio=audio_success)
             
             if not master_success:
                 error_msg = "Failed to create master playlist"
