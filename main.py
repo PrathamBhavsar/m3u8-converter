@@ -313,6 +313,120 @@ class VideoConverter:
         self.segment_duration = segment_duration
         logging.info(f"VideoConverter initialized with segment_duration={segment_duration}s")
     
+    def get_video_duration(self, video_path: Path) -> Optional[float]:
+        """
+        Get the duration of a video file in seconds using FFprobe.
+        
+        Args:
+            video_path: Path to the video file
+            
+        Returns:
+            Duration in seconds, or None if unable to determine
+        """
+        try:
+            command = [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(video_path.absolute())
+            ]
+            
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                duration = float(result.stdout.strip())
+                logging.debug(f"Video duration: {duration:.2f} seconds")
+                return duration
+            else:
+                logging.error(f"Failed to get video duration: {result.stderr}")
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error getting video duration: {e}")
+            return None
+    
+    def extract_thumbnails(self, video_path: Path, output_folder: Path, percentages: List[int]) -> bool:
+        """
+        Extract thumbnails from video at specified percentage points.
+        
+        Args:
+            video_path: Path to the source video file
+            output_folder: Path to the folder where thumbnails should be saved (same level as video/)
+            percentages: List of percentage values (e.g., [30, 50, 70])
+            
+        Returns:
+            True if all thumbnails were extracted successfully, False otherwise
+        """
+        try:
+            logging.info(f"Extracting {len(percentages)} thumbnails from {video_path.name}")
+            
+            # Get video duration
+            duration = self.get_video_duration(video_path)
+            if duration is None:
+                logging.error("Cannot extract thumbnails: unable to determine video duration")
+                return False
+            
+            logging.info(f"Video duration: {duration:.2f} seconds")
+            
+            # Extract thumbnail at each percentage
+            success_count = 0
+            for idx, percentage in enumerate(percentages, 1):
+                try:
+                    # Calculate timestamp in seconds
+                    timestamp = (percentage / 100.0) * duration
+                    
+                    # Output filename: thumbnail1.jpg, thumbnail2.jpg, thumbnail3.jpg
+                    output_file = output_folder / f"thumbnail{idx}.jpg"
+                    
+                    logging.debug(f"Extracting thumbnail {idx} at {percentage}% ({timestamp:.2f}s)")
+                    
+                    # FFmpeg command to extract frame at specific timestamp
+                    command = [
+                        "ffmpeg",
+                        "-y",  # Overwrite output files
+                        "-ss", str(timestamp),  # Seek to timestamp
+                        "-i", str(video_path.absolute()),
+                        "-vframes", "1",  # Extract 1 frame
+                        "-q:v", "2",  # High quality (2-5 is good, lower is better)
+                        str(output_file.absolute())
+                    ]
+                    
+                    result = subprocess.run(
+                        command,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        timeout=30
+                    )
+                    
+                    if result.returncode == 0 and output_file.exists():
+                        file_size = output_file.stat().st_size
+                        logging.info(f"Thumbnail {idx} extracted: {output_file.name} ({file_size} bytes)")
+                        success_count += 1
+                    else:
+                        logging.error(f"Failed to extract thumbnail {idx}: {result.stderr}")
+                        
+                except Exception as e:
+                    logging.error(f"Error extracting thumbnail {idx} at {percentage}%: {e}")
+            
+            if success_count == len(percentages):
+                logging.info(f"Successfully extracted all {len(percentages)} thumbnails")
+                return True
+            else:
+                logging.warning(f"Only extracted {success_count}/{len(percentages)} thumbnails")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Error during thumbnail extraction: {e}", exc_info=True)
+            return False
+    
     def _build_ffmpeg_command(self, input_mp4: Path, output_dir: Path) -> List[str]:
         """
         Construct FFmpeg command with HLS parameters.
@@ -1241,6 +1355,11 @@ class ConfigManager:
     def output_directory(self) -> Path:
         """Get the output directory path as a Path object."""
         return Path(self._config["output_directory_path"])
+    
+    @property
+    def thumbnail_video_percentage(self) -> List[int]:
+        """Get the thumbnail video percentage values."""
+        return self._config.get("thumbnail_video_percentage", [30, 50, 70])
 
 
 def main():
@@ -1366,6 +1485,16 @@ def main():
                     logger.info(f"Validation passed for {folder.name}")
                     logger.debug(f"Copying non-MP4 files for {folder.name}")
                     file_processor.copy_non_mp4_files(folder, output_folder)
+                    
+                    # Extract thumbnails at configured percentage points
+                    logger.info(f"Extracting thumbnails for {folder.name}")
+                    thumbnail_percentages = config.thumbnail_video_percentage
+                    logger.debug(f"Thumbnail extraction points: {thumbnail_percentages}%")
+                    thumbnail_success = converter.extract_thumbnails(mp4_file, output_folder, thumbnail_percentages)
+                    if thumbnail_success:
+                        logger.info(f"Thumbnails extracted successfully for {folder.name}")
+                    else:
+                        logger.warning(f"Thumbnail extraction had issues for {folder.name}")
                     
                     # Track output size using get_folder_size()
                     logger.debug(f"Calculating output folder size for {folder.name}")

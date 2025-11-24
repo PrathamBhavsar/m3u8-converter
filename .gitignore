@@ -40,5 +40,5 @@ desktop.ini
 # Project specific
 config.json
 *.log
-test_input/
-test_output/
+input/
+output/
