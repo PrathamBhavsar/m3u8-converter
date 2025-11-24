@@ -38,6 +38,9 @@ vp9_720p/video.m3u8
 vp9_480p/video.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=594105,RESOLUTION=360x640,CODECS="vp09.00.21.08.00.01.01.01.00,mp4a.40.2"
 vp9_360p/video.m3u8
+
+
+
 master_h264.m3u8
 
 
@@ -49,6 +52,9 @@ master_h264.m3u8
 h264_720p/video.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=360x640,CODECS="avc1.4d401e,mp4a.40.2"
 h264_360p/video.m3u8
+
+
+
 Audio Extraction:
 
 Extract one (1) single audio track in the AAC-LC format. 
