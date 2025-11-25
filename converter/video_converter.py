@@ -21,7 +21,6 @@ class VideoConverter:
             segment_duration: Duration of each HLS segment in seconds (default: 5)
         """
         self.segment_duration = segment_duration
-        logging.info(f"VideoConverter initialized with segment_duration={segment_duration}s")
     
     def get_video_duration(self, video_path: Path) -> Optional[float]:
         """
@@ -52,10 +51,8 @@ class VideoConverter:
             
             if result.returncode == 0 and result.stdout.strip():
                 duration = float(result.stdout.strip())
-                logging.debug(f"Video duration: {duration:.2f} seconds")
                 return duration
             else:
-                logging.error(f"Failed to get video duration: {result.stderr}")
                 return None
                 
         except Exception as e:
@@ -75,15 +72,10 @@ class VideoConverter:
             True if all thumbnails were extracted successfully, False otherwise
         """
         try:
-            logging.info(f"Extracting {len(percentages)} thumbnails from {video_path.name}")
-            
             # Get video duration
             duration = self.get_video_duration(video_path)
             if duration is None:
-                logging.error("Cannot extract thumbnails: unable to determine video duration")
                 return False
-            
-            logging.info(f"Video duration: {duration:.2f} seconds")
             
             # Extract thumbnail at each percentage
             success_count = 0
@@ -94,8 +86,6 @@ class VideoConverter:
                     
                     # Output filename: thumbnail1.jpg, thumbnail2.jpg, thumbnail3.jpg
                     output_file = output_folder / f"thumbnail{idx}.jpg"
-                    
-                    logging.debug(f"Extracting thumbnail {idx} at {percentage}% ({timestamp:.2f}s)")
                     
                     # FFmpeg command to extract frame at specific timestamp
                     command = [
@@ -117,21 +107,12 @@ class VideoConverter:
                     )
                     
                     if result.returncode == 0 and output_file.exists():
-                        file_size = output_file.stat().st_size
-                        logging.info(f"Thumbnail {idx} extracted: {output_file.name} ({file_size} bytes)")
                         success_count += 1
-                    else:
-                        logging.error(f"Failed to extract thumbnail {idx}: {result.stderr}")
                         
                 except Exception as e:
-                    logging.error(f"Error extracting thumbnail {idx} at {percentage}%: {e}")
+                    logging.error(f"Error extracting thumbnail {idx}: {e}")
             
-            if success_count == len(percentages):
-                logging.info(f"Successfully extracted all {len(percentages)} thumbnails")
-                return True
-            else:
-                logging.warning(f"Only extracted {success_count}/{len(percentages)} thumbnails")
-                return False
+            return success_count == len(percentages)
                 
         except Exception as e:
             logging.error(f"Error during thumbnail extraction: {e}", exc_info=True)
@@ -149,14 +130,9 @@ class VideoConverter:
             ConversionResult with success status and file paths
         """
         try:
-            logging.info(f"Starting multi-quality HLS conversion: {input_mp4.name}")
-            logging.debug(f"Input file: {input_mp4}")
-            logging.debug(f"Output directory: {output_dir}")
-            
             # Validate input file
             if not input_mp4.exists():
-                error_msg = f"Input MP4 file does not exist: {input_mp4}"
-                logging.error(error_msg)
+                error_msg = f"Input MP4 file does not exist"
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
@@ -167,8 +143,7 @@ class VideoConverter:
                 )
             
             if not input_mp4.is_file():
-                error_msg = f"Input path is not a file: {input_mp4}"
-                logging.error(error_msg)
+                error_msg = f"Input path is not a file"
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
@@ -177,13 +152,6 @@ class VideoConverter:
                     segment_files=[],
                     error_message=error_msg
                 )
-            
-            # Log input file size
-            try:
-                file_size_mb = input_mp4.stat().st_size / (1024 * 1024)
-                logging.info(f"Input file size: {file_size_mb:.2f} MB")
-            except Exception as e:
-                logging.warning(f"Could not determine input file size: {e}")
             
             video_dir = output_dir / "video"
             video_dir.mkdir(parents=True, exist_ok=True)
@@ -194,7 +162,6 @@ class VideoConverter:
             
             if video_info is None:
                 error_msg = "Failed to detect video information"
-                logging.error(error_msg)
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
@@ -208,8 +175,7 @@ class VideoConverter:
             encoding_profiles = detector.get_encoding_profiles(source_quality)
             
             if not encoding_profiles:
-                error_msg = f"No encoding profiles determined for {source_quality}"
-                logging.error(error_msg)
+                error_msg = "No encoding profiles determined"
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
@@ -219,23 +185,15 @@ class VideoConverter:
                     error_message=error_msg
                 )
             
-            logging.info(f"Will encode {len(encoding_profiles)} quality levels: {[p.name for p in encoding_profiles]}")
-            
             # Step 2: Encode audio separately (shared between H.264 and VP9)
             encoder = HLSEncoder(segment_duration=self.segment_duration)
-            logging.info("Encoding audio track...")
             audio_success = encoder.encode_audio(input_mp4, video_dir, audio_bitrate="128k")
             
-            if not audio_success:
-                logging.warning("Failed to encode audio, continuing with video-only")
-            
             # Step 3: Encode H.264 quality levels
-            logging.info("=== Encoding H.264 qualities ===")
             encoded_h264_profiles = []
             all_segment_files = []
             
             for profile in encoding_profiles:
-                logging.info(f"Encoding H.264 {profile.name}...")
                 success = encoder.encode_quality(input_mp4, video_dir, profile)
                 
                 if success:
@@ -243,13 +201,9 @@ class VideoConverter:
                     quality_dir = video_dir / profile.folder_name
                     segments = list(quality_dir.glob("video*.m4s"))
                     all_segment_files.extend(segments)
-                    logging.info(f"Successfully encoded H.264 {profile.name} with {len(segments)} segments")
-                else:
-                    logging.error(f"Failed to encode H.264 {profile.name}")
             
             if not encoded_h264_profiles:
                 error_msg = "Failed to encode any H.264 quality levels"
-                logging.error(error_msg)
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
@@ -260,12 +214,10 @@ class VideoConverter:
                 )
             
             # Step 4: Encode VP9 quality levels
-            logging.info("=== Encoding VP9 qualities ===")
             vp9_encoding_profiles = detector.get_encoding_profiles(source_quality, codec="vp9")
             encoded_vp9_profiles = []
             
             for profile in vp9_encoding_profiles:
-                logging.info(f"Encoding VP9 {profile.name}...")
                 success = encoder.encode_quality(input_mp4, video_dir, profile)
                 
                 if success:
@@ -273,29 +225,20 @@ class VideoConverter:
                     quality_dir = video_dir / profile.folder_name
                     segments = list(quality_dir.glob("video*.m4s"))
                     all_segment_files.extend(segments)
-                    logging.info(f"Successfully encoded VP9 {profile.name} with {len(segments)} segments")
-                else:
-                    logging.error(f"Failed to encode VP9 {profile.name}")
-            
-            if not encoded_vp9_profiles:
-                logging.warning("Failed to encode any VP9 quality levels, continuing with H.264 only")
             
             # Add audio segments to the list if audio was encoded
             if audio_success:
                 audio_dir = output_dir / "audio"
                 audio_segments = list(audio_dir.glob("audio*.m4s"))
                 all_segment_files.extend(audio_segments)
-                logging.info(f"Added {len(audio_segments)} audio segments")
             
             # Step 5: Create H.264 master playlist
-            logging.info("Creating H.264 master playlist...")
             h264_master_success = encoder.create_master_playlist(
                 video_dir, encoded_h264_profiles, has_audio=audio_success, codec="h264"
             )
             
             if not h264_master_success:
                 error_msg = "Failed to create H.264 master playlist"
-                logging.error(error_msg)
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
@@ -307,20 +250,13 @@ class VideoConverter:
             
             # Step 6: Create VP9 master playlist if VP9 encoding succeeded
             if encoded_vp9_profiles:
-                logging.info("Creating VP9 master playlist...")
-                vp9_master_success = encoder.create_master_playlist(
+                encoder.create_master_playlist(
                     video_dir, encoded_vp9_profiles, has_audio=audio_success, codec="vp9"
                 )
-                
-                if not vp9_master_success:
-                    logging.warning("Failed to create VP9 master playlist, but H.264 succeeded")
             
             # Success!
             master_playlist = video_dir / "master_h264.m3u8"
             first_init = video_dir / encoded_h264_profiles[0].folder_name / "init.mp4"
-            
-            total_qualities = len(encoded_h264_profiles) + len(encoded_vp9_profiles)
-            logging.info(f"Multi-codec conversion successful: {len(encoded_h264_profiles)} H.264 + {len(encoded_vp9_profiles)} VP9 qualities, {len(all_segment_files)} total segments")
             
             return ConversionResult(
                 success=True,

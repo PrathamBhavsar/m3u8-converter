@@ -19,7 +19,6 @@ class HLSEncoder:
             segment_duration: Duration of each HLS segment in seconds
         """
         self.segment_duration = segment_duration
-        logging.info(f"HLSEncoder initialized with segment_duration={segment_duration}s")
     
     def encode_audio(
         self,
@@ -42,8 +41,6 @@ class HLSEncoder:
             # Create audio folder
             audio_dir = output_dir.parent / "audio"
             audio_dir.mkdir(parents=True, exist_ok=True)
-            
-            logging.info(f"Encoding audio to {audio_dir}")
             
             # Build FFmpeg command for audio-only HLS
             # Use relative paths for init and segments so they work in the playlist
@@ -69,8 +66,6 @@ class HLSEncoder:
                 "aac.m3u8"
             ]
             
-            logging.debug(f"FFmpeg audio command: {' '.join(command)}")
-            
             # Execute FFmpeg from the audio directory so files are created there
             result = subprocess.run(
                 command,
@@ -81,27 +76,16 @@ class HLSEncoder:
                 cwd=str(audio_dir.absolute())
             )
             
-            if result.stderr:
-                logging.debug(f"FFmpeg audio stderr (last 500 chars): {result.stderr[-500:]}")
-            
             if result.returncode == 0:
-                logging.info(f"Successfully encoded audio")
-                
-                # List created files
-                created_files = list(audio_dir.iterdir())
-                logging.info(f"Audio files created: {[f.name for f in created_files]}")
-                
                 # Verify playlist exists
                 playlist = audio_dir / "aac.m3u8"
                 init_file = audio_dir / "init.mp4"
                 
                 if not playlist.exists():
-                    logging.error(f"Audio playlist not created: {playlist}")
                     return False
                 
                 # Create init file manually if needed
                 if not init_file.exists():
-                    logging.warning(f"Audio init file not created by FFmpeg, creating manually...")
                     try:
                         init_command = [
                             "ffmpeg",
@@ -125,29 +109,18 @@ class HLSEncoder:
                             timeout=60
                         )
                         
-                        if init_result.returncode == 0 and init_file.exists():
-                            logging.info(f"Successfully created audio init file manually")
-                        else:
-                            logging.error(f"Failed to create audio init file")
+                        if init_result.returncode != 0 or not init_file.exists():
                             return False
-                    except Exception as e:
-                        logging.error(f"Error creating audio init file: {e}")
+                    except Exception:
                         return False
-                
-                # Count audio segments
-                segments = list(audio_dir.glob("audio*.m4s"))
-                logging.info(f"Created {len(segments)} audio segments")
                 
                 return True
             else:
-                logging.error(f"FFmpeg audio encoding failed: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            logging.error(f"Audio encoding timeout")
             return False
-        except Exception as e:
-            logging.error(f"Error encoding audio: {e}", exc_info=True)
+        except Exception:
             return False
     
     def encode_quality(
@@ -172,8 +145,6 @@ class HLSEncoder:
             # Create quality-specific folder
             quality_dir = output_dir / profile.folder_name
             quality_dir.mkdir(parents=True, exist_ok=True)
-            
-            logging.info(f"Encoding {profile.name} quality ({profile.codec}) to {quality_dir}")
             
             # Build FFmpeg command based on codec
             if profile.codec == "vp9":
@@ -231,8 +202,6 @@ class HLSEncoder:
                     "video.m3u8"
                 ]
             
-            logging.debug(f"FFmpeg command: {' '.join(command)}")
-            
             # Execute FFmpeg from the quality directory so files are created there
             result = subprocess.run(
                 command,
@@ -243,31 +212,16 @@ class HLSEncoder:
                 cwd=str(quality_dir.absolute())
             )
             
-            # Log FFmpeg output for debugging
-            if result.stdout:
-                logging.info(f"FFmpeg stdout: {result.stdout[:500]}")
-            if result.stderr:
-                logging.info(f"FFmpeg stderr (last 1000 chars): {result.stderr[-1000:]}")
-            
             if result.returncode == 0:
-                logging.info(f"Successfully encoded {profile.name} quality")
-                
-                # List all files created in the output directory
-                created_files = list(quality_dir.iterdir())
-                logging.info(f"Files created in {quality_dir.name}: {[f.name for f in created_files]}")
-                
                 # Verify output files exist
                 playlist = quality_dir / "video.m3u8"
                 init_file = quality_dir / "init.mp4"
                 
                 if not playlist.exists():
-                    logging.error(f"Playlist not created: {playlist}")
-                    logging.error(f"Expected location: {playlist.absolute()}")
                     return False
                 
                 # If init file doesn't exist, create it manually from the encoded video
                 if not init_file.exists():
-                    logging.warning(f"Init file not created by FFmpeg, creating manually...")
                     try:
                         # Create init segment with just the moov atom (video only)
                         if profile.codec == "vp9":
@@ -311,29 +265,18 @@ class HLSEncoder:
                             timeout=60
                         )
                         
-                        if init_result.returncode == 0 and init_file.exists():
-                            logging.info(f"Successfully created init file manually")
-                        else:
-                            logging.error(f"Failed to create init file manually: {init_result.stderr[-500:]}")
+                        if init_result.returncode != 0 or not init_file.exists():
                             return False
-                    except Exception as e:
-                        logging.error(f"Error creating init file: {e}")
+                    except Exception:
                         return False
-                
-                # Count segment files
-                segments = list(quality_dir.glob("video*.m4s"))
-                logging.info(f"Created {len(segments)} segments for {profile.name}")
                 
                 return True
             else:
-                logging.error(f"FFmpeg encoding failed for {profile.name}: {result.stderr}")
                 return False
                 
         except subprocess.TimeoutExpired:
-            logging.error(f"Encoding timeout for {profile.name}")
             return False
-        except Exception as e:
-            logging.error(f"Error encoding {profile.name}: {e}", exc_info=True)
+        except Exception:
             return False
     
     def create_master_playlist(
@@ -358,7 +301,6 @@ class HLSEncoder:
         try:
             master_filename = f"master_{codec}.m3u8"
             master_path = output_dir / master_filename
-            logging.info(f"Creating master playlist: {master_path}")
             
             with open(master_path, 'w') as f:
                 f.write("#EXTM3U\n")
@@ -375,7 +317,6 @@ class HLSEncoder:
                         f.write('#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",'
                                'DEFAULT=YES,AUTOSELECT=YES,LANGUAGE="en",'
                                'URI="../audio/aac.m3u8"\n')
-                        logging.info("Added audio track to master playlist")
                 
                 # Add each quality level
                 for profile in profiles:
@@ -384,7 +325,6 @@ class HLSEncoder:
                     
                     # Verify the quality playlist exists
                     if not playlist_path.exists():
-                        logging.warning(f"Skipping {profile.name}: playlist not found")
                         continue
                     
                     # Get actual resolution from profile
@@ -413,28 +353,44 @@ class HLSEncoder:
                     if codec == "vp9":
                         # VP9 format: only 1080p has AVERAGE-BANDWIDTH
                         if profile.height == 1080:
+                            if has_audio:
+                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                                       f"AVERAGE-BANDWIDTH={profile.bandwidth},"
+                                       f"RESOLUTION={width}x{profile.height},"
+                                       f"FRAME-RATE=30,"
+                                       f'CODECS="{video_codec},mp4a.40.2",'
+                                       f'AUDIO="audio"\n')
+                            else:
+                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                                       f"AVERAGE-BANDWIDTH={profile.bandwidth},"
+                                       f"RESOLUTION={width}x{profile.height},"
+                                       f"FRAME-RATE=30,"
+                                       f'CODECS="{video_codec}"\n')
+                        else:
+                            if has_audio:
+                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                                       f"RESOLUTION={width}x{profile.height},"
+                                       f'CODECS="{video_codec},mp4a.40.2",'
+                                       f'AUDIO="audio"\n')
+                            else:
+                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                                       f"RESOLUTION={width}x{profile.height},"
+                                       f'CODECS="{video_codec}"\n')
+                    else:
+                        # H.264 format - simple format from requirements.md
+                        if has_audio:
                             f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                                   f"AVERAGE-BANDWIDTH={profile.bandwidth},"
                                    f"RESOLUTION={width}x{profile.height},"
-                                   f"FRAME-RATE=30,"
-                                   f'CODECS="{video_codec},mp4a.40.2"\n')
+                                   f'CODECS="{video_codec},mp4a.40.2",'
+                                   f'AUDIO="audio"\n')
                         else:
                             f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
                                    f"RESOLUTION={width}x{profile.height},"
-                                   f'CODECS="{video_codec},mp4a.40.2"\n')
-                    else:
-                        # H.264 format - simple format from requirements.md
-                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                               f"RESOLUTION={width}x{profile.height},"
-                               f'CODECS="{video_codec},mp4a.40.2"\n')
+                                   f'CODECS="{video_codec}"\n')
                     
                     f.write(f"{profile.folder_name}/video.m3u8\n")
-                    
-                    logging.debug(f"Added {profile.name} to master playlist")
             
-            logging.info(f"Master playlist created successfully with {len(profiles)} qualities")
             return True
             
-        except Exception as e:
-            logging.error(f"Error creating master playlist: {e}", exc_info=True)
+        except Exception:
             return False
