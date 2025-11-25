@@ -30,6 +30,7 @@ class ProgressBar:
         self.current_video = current_video
         self.current_phase = 0
         self.total_phases = len(self.PHASES)
+        self.elapsed_time: Optional[float] = None
     
     def start(self):
         """Start processing a video."""
@@ -56,18 +57,45 @@ class ProgressBar:
         
         self._render()
     
-    def finish(self, success: bool = True):
+    def finish(self, success: bool = True, elapsed_time: Optional[float] = None):
         """
         Finish processing the video.
         
         Args:
             success: Whether the processing was successful
+            elapsed_time: Optional elapsed time in seconds
         """
+        time_str = ""
+        if elapsed_time is not None:
+            time_str = f" ({self._format_time(elapsed_time)})"
+        
         if success:
-            print(f"\n[OK] Finished: {self.video_name}")
+            print(f"\n[OK] Finished: {self.video_name}{time_str}")
         else:
             print(f"\n[FAILED] {self.video_name}")
         print()
+    
+    def _format_time(self, seconds: float) -> str:
+        """
+        Format seconds into human-readable time string.
+        
+        Args:
+            seconds: Time in seconds
+            
+        Returns:
+            Formatted time string
+        """
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            return f"{hours}h {minutes}m {secs}s"
     
     def _render(self):
         """Render the progress bar."""

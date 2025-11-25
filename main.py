@@ -6,6 +6,7 @@ Main entry point for the video conversion system.
 
 import logging
 import shutil
+from pathlib import Path
 
 from converter.config_manager import ConfigManager
 from converter.file_processor import FileProcessor
@@ -14,6 +15,7 @@ from converter.validator import Validator
 from converter.compressor import ZipCompressor
 from converter.stats_tracker import StatsTracker
 from converter.progress_bar import ProgressBar
+from converter.stop_flag import StopFlag
 
 
 def main():
@@ -25,8 +27,24 @@ def main():
     )
     
     logger = logging.getLogger(__name__)
+    
+    # Initialize stop flag and register signal handlers
+    stop_flag = StopFlag.get_instance()
+    stop_flag.reset()
+    stop_flag.register_signal_handlers()
+    
+    # Clean up any leftover stop signal file
+    stop_file = Path(".converter_stop_signal")
+    if stop_file.exists():
+        try:
+            stop_file.unlink()
+        except Exception:
+            pass
+    
     print("=" * 60)
     print("MP4 to HLS Video Converter")
+    print("=" * 60)
+    print("Press Ctrl+C to stop after current video completes")
     print("=" * 60)
     
     try:
@@ -42,6 +60,7 @@ def main():
         
         # Initialize components
         stats = StatsTracker()
+        stats.start_timer()
         file_processor = FileProcessor(config.input_directory, config.output_directory)
         
         # Find source folders
@@ -72,14 +91,32 @@ def main():
         
         # Process each valid folder
         for idx, folder in enumerate(valid_folders, 1):
+            # Check if stop was requested before starting new video
+            # Check both signal handler and stop file (for GUI)
+            stop_file = Path(".converter_stop_signal")
+            if stop_file.exists():
+                stop_flag.request_stop()
+                try:
+                    stop_file.unlink()
+                except Exception:
+                    pass
+            
+            if stop_flag.is_stop_requested():
+                print(f"\n[STOP] Stopping conversion - {len(valid_folders) - idx + 1} video(s) remaining")
+                break
+            
             progress = ProgressBar(folder.name, len(valid_folders), idx)
             progress.start()
+            
+            # Start timing this video
+            stats.start_video_timer()
             
             try:
                 # Phase 1: Validating folder
                 progress.next_phase("Validating folder")
                 mp4_file = file_processor.get_mp4_file(folder)
                 if not mp4_file:
+                    stats.end_video_timer()
                     progress.finish(success=False)
                     print(f"[ERROR] No MP4 file found in {folder.name}")
                     stats.record_failure()
@@ -91,6 +128,7 @@ def main():
                 try:
                     output_folder = file_processor.create_output_structure(folder.name)
                 except Exception as e:
+                    stats.end_video_timer()
                     progress.finish(success=False)
                     print(f"[ERROR] Failed to create output structure: {e}")
                     stats.record_failure()
@@ -113,6 +151,7 @@ def main():
                 conversion_result = converter.convert_to_hls(mp4_file, output_folder)
                 
                 if not conversion_result.success:
+                    stats.end_video_timer()
                     progress.finish(success=False)
                     print(f"[ERROR] {conversion_result.error_message}")
                     stats.record_failure()
@@ -123,6 +162,7 @@ def main():
                 validation_result = validator.validate_hls_output(conversion_result)
                 
                 if not validation_result.valid:
+                    stats.end_video_timer()
                     progress.finish(success=False)
                     print(f"[ERROR] Validation failed - {validation_result.error_message}")
                     stats.record_failure()
@@ -165,9 +205,12 @@ def main():
                 if config.delete_mp4:
                     file_processor.delete_source_folder(folder)
                 
-                progress.finish(success=True)
+                # End timing and show completion
+                elapsed = stats.end_video_timer()
+                progress.finish(success=True, elapsed_time=elapsed)
                     
             except Exception as e:
+                stats.end_video_timer()
                 progress.finish(success=False)
                 print(f"[ERROR] Unexpected error: {e}")
                 stats.record_failure()
@@ -177,7 +220,10 @@ def main():
         stats.print_summary()
         
         print("=" * 60)
-        print("Conversion Complete")
+        if stop_flag.is_stop_requested():
+            print("Conversion Stopped (completed current video)")
+        else:
+            print("Conversion Complete")
         print("=" * 60)
         
         return 0

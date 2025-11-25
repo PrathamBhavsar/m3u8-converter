@@ -1,6 +1,8 @@
 """Statistics tracking for conversion operations."""
 
 import logging
+import time
+from typing import Optional
 
 from converter.data_models import StatsSummary
 
@@ -16,7 +18,27 @@ class StatsTracker:
         self._failed_conversions = 0
         self._skipped_no_mp4 = 0
         self._skipped_multiple_mp4 = 0
+        self._start_time: Optional[float] = None
+        self._total_conversion_time = 0.0  # Total time spent on successful conversions
+        self._current_video_start: Optional[float] = None
         logging.info("StatsTracker initialized")
+    
+    def start_timer(self):
+        """Start the overall timer."""
+        self._start_time = time.time()
+    
+    def start_video_timer(self):
+        """Start timer for current video conversion."""
+        self._current_video_start = time.time()
+    
+    def end_video_timer(self):
+        """End timer for current video and add to total conversion time."""
+        if self._current_video_start is not None:
+            elapsed = time.time() - self._current_video_start
+            self._total_conversion_time += elapsed
+            self._current_video_start = None
+            return elapsed
+        return 0.0
     
     def add_source_size(self, size_bytes: int) -> None:
         """
@@ -91,12 +113,31 @@ class StatsTracker:
         """Display formatted statistics report."""
         summary = self.get_summary()
         
+        # Calculate timing information
+        total_runtime = 0.0
+        if self._start_time is not None:
+            total_runtime = time.time() - self._start_time
+        
+        avg_time_per_video = 0.0
+        if self._successful_conversions > 0:
+            avg_time_per_video = self._total_conversion_time / self._successful_conversions
+        
         print("\n" + "=" * 60)
         print("CONVERSION STATISTICS SUMMARY")
         print("=" * 60)
+        
+        # Timing information
+        if total_runtime > 0:
+            print(f"Total Runtime:            {self._format_time(total_runtime)}")
+            if self._successful_conversions > 0:
+                print(f"Average Time per Video:   {self._format_time(avg_time_per_video)}")
+        
+        # Size information
         print(f"Total Source Size:        {summary.total_source_gb:.2f} GB")
         print(f"Total Output Size:        {summary.total_output_gb:.2f} GB")
         print(f"Compression Ratio:        {summary.compression_ratio:.2%}")
+        
+        # Conversion counts
         print(f"Successful Conversions:   {summary.successful_conversions}")
         print(f"Failed Conversions:       {summary.failed_conversions}")
         print(f"Skipped Folders:          {summary.skipped_folders}")
@@ -112,5 +153,28 @@ class StatsTracker:
             f"{summary.total_output_gb:.2f} GB output, "
             f"{summary.successful_conversions} successful, "
             f"{summary.failed_conversions} failed, "
-            f"{summary.skipped_folders} skipped"
+            f"{summary.skipped_folders} skipped, "
+            f"runtime: {self._format_time(total_runtime)}"
         )
+    
+    def _format_time(self, seconds: float) -> str:
+        """
+        Format seconds into human-readable time string.
+        
+        Args:
+            seconds: Time in seconds
+            
+        Returns:
+            Formatted time string (e.g., "1h 23m 45s" or "5m 30s" or "45s")
+        """
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            return f"{hours}h {minutes}m {secs}s"

@@ -25,9 +25,40 @@ class ConverterGUI:
         
         self.config_file = Path("config.json")
         self.conversion_process = None
+        self.conversion_thread = None
+        self.stop_requested = False
+        
+        # Handle window close event
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
         
         self._create_widgets()
         self._load_config()
+    
+    def _on_closing(self):
+        """Handle window close event."""
+        if self.conversion_process:
+            result = messagebox.askyesno(
+                "Conversion in Progress",
+                "A conversion is currently running.\n\n"
+                "Closing now will stop after the current video completes.\n\n"
+                "Do you want to stop and close?",
+                icon=messagebox.WARNING
+            )
+            if result:
+                self._stop_conversion()
+                # Wait a moment for the stop signal to be sent
+                self.root.after(500, self._check_and_close)
+            return
+        else:
+            self.root.destroy()
+    
+    def _check_and_close(self):
+        """Check if conversion stopped and close window."""
+        if self.conversion_process and self.conversion_process.poll() is None:
+            # Process still running, check again in 500ms
+            self.root.after(500, self._check_and_close)
+        else:
+            self.root.destroy()
     
     def _create_widgets(self):
         """Create and layout all GUI widgets."""
@@ -296,13 +327,16 @@ class ConverterGUI:
         self.stop_button.config(state=tk.NORMAL)
         self.status_var.set("Converting...")
         
-        # Run conversion in separate thread
-        thread = threading.Thread(target=self._run_conversion, daemon=True)
-        thread.start()
+        # Run conversion in separate thread (not daemon so it completes)
+        self.conversion_thread = threading.Thread(target=self._run_conversion, daemon=False)
+        self.conversion_thread.start()
     
     def _run_conversion(self):
         """Run the main.py conversion script in a subprocess."""
         try:
+            # Reset stop flag
+            self.stop_requested = False
+            
             # Run main.py as subprocess
             self.conversion_process = subprocess.Popen(
                 [sys.executable, "main.py"],
@@ -310,7 +344,8 @@ class ConverterGUI:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
             )
             
             # Read output line by line
@@ -354,28 +389,86 @@ class ConverterGUI:
             )
         
         finally:
+            # Clean up stop signal file
+            stop_file = Path(".converter_stop_signal")
+            if stop_file.exists():
+                try:
+                    stop_file.unlink()
+                except Exception:
+                    pass
+            
             # Re-enable start button, disable stop button
             self.root.after(0, self.start_button.config, {"state": tk.NORMAL})
             self.root.after(0, self.stop_button.config, {"state": tk.DISABLED})
             self.conversion_process = None
+            self.stop_requested = False
     
     def _stop_conversion(self):
-        """Stop the running conversion process."""
-        if self.conversion_process:
+        """Stop the running conversion process gracefully."""
+        if self.conversion_process and not self.stop_requested:
             try:
-                self.conversion_process.terminate()
-                self._log("Stopping conversion...")
-                self.status_var.set("Stopping...")
+                import signal
+                import os
+                
+                self.stop_requested = True
+                
+                self._log("=" * 60)
+                self._log("Stop requested - will finish current video and exit...")
+                self._log("Please wait for current video to complete...")
+                self._log("=" * 60)
+                self.status_var.set("Stopping after current video...")
+                
+                # Disable stop button to prevent multiple clicks
+                self.stop_button.config(state=tk.DISABLED)
+                
+                # Create a stop signal file that main.py will check
+                stop_file = Path(".converter_stop_signal")
+                try:
+                    stop_file.touch()
+                except Exception:
+                    pass
+                
+                # Also try to send signal to process
+                try:
+                    if sys.platform == "win32":
+                        # On Windows, use terminate as CTRL_C_EVENT doesn't work reliably
+                        # But first let the stop file do its job
+                        pass
+                    else:
+                        # On Unix-like systems, send SIGINT
+                        self.conversion_process.send_signal(signal.SIGINT)
+                except Exception:
+                    pass
+                    
             except Exception as e:
                 self._log(f"Error stopping conversion: {e}")
-                messagebox.showerror("Error", f"Failed to stop conversion:\n{e}")
 
 
 def main():
     """Main entry point for the GUI application."""
     root = tk.Tk()
     app = ConverterGUI(root)
-    root.mainloop()
+    
+    # Handle Ctrl+C gracefully - don't interrupt GUI
+    import signal
+    
+    def signal_handler(signum, frame):
+        """Handle Ctrl+C by triggering stop button if conversion is running."""
+        if app.conversion_process:
+            app._stop_conversion()
+        else:
+            # If no conversion running, just close the GUI
+            root.quit()
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        # Gracefully handle Ctrl+C
+        if app.conversion_process:
+            app._stop_conversion()
+        root.quit()
 
 
 if __name__ == "__main__":
