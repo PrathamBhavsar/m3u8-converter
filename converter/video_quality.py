@@ -24,20 +24,30 @@ class QualityProfile:
     video_bitrate: str  # e.g., "5000k"
     audio_bitrate: str  # e.g., "128k"
     bandwidth: int  # For master playlist
+    codec: str = "h264"  # "h264" or "vp9"
     
     @property
     def folder_name(self) -> str:
         """Get the folder name for this quality."""
-        return f"h264_{self.name}"
+        return f"{self.codec}_{self.name}"
 
 
-# Standard quality profiles
-QUALITY_PROFILES = {
-    "1080p": QualityProfile("1080p", 1080, "5000k", "128k", 5500000),
-    "720p": QualityProfile("720p", 720, "2800k", "128k", 3000000),
-    "480p": QualityProfile("480p", 480, "1400k", "128k", 1500000),
-    "360p": QualityProfile("360p", 360, "800k", "128k", 900000),
+# Standard quality profiles for H.264 (from requirements.md)
+QUALITY_PROFILES_H264 = {
+    "720p": QualityProfile("720p", 720, "2077k", "128k", 2077570, "h264"),
+    "360p": QualityProfile("360p", 360, "800k", "128k", 800000, "h264"),
 }
+
+# Standard quality profiles for VP9
+QUALITY_PROFILES_VP9 = {
+    "1080p": QualityProfile("1080p", 1080, "2905k", "128k", 2905000, "vp9"),
+    "720p": QualityProfile("720p", 720, "1291k", "128k", 1290999, "vp9"),
+    "480p": QualityProfile("480p", 480, "768k", "128k", 768242, "vp9"),
+    "360p": QualityProfile("360p", 360, "594k", "128k", 594105, "vp9"),
+}
+
+# Backward compatibility
+QUALITY_PROFILES = QUALITY_PROFILES_H264
 
 # Quality order from highest to lowest
 QUALITY_ORDER = ["1080p", "720p", "480p", "360p"]
@@ -153,18 +163,22 @@ class VideoQualityDetector:
         logging.info(f"Source video quality determined: {quality} (height={height})")
         return quality
     
-    def get_encoding_profiles(self, source_quality: str) -> List[QualityProfile]:
+    def get_encoding_profiles(self, source_quality: str, codec: str = "h264") -> List[QualityProfile]:
         """
         Get list of quality profiles to encode based on source quality.
         Only encode qualities equal to or lower than source.
         
         Args:
             source_quality: Source video quality (e.g., "720p")
+            codec: Codec to use ("h264" or "vp9")
             
         Returns:
             List of QualityProfile objects to encode
         """
         profiles = []
+        
+        # Select the appropriate profile set
+        profile_set = QUALITY_PROFILES_VP9 if codec == "vp9" else QUALITY_PROFILES_H264
         
         # Find the index of source quality
         try:
@@ -175,8 +189,8 @@ class VideoQualityDetector:
         
         # Include all qualities from source quality downwards
         for quality in QUALITY_ORDER[source_index:]:
-            if quality in QUALITY_PROFILES:
-                profiles.append(QUALITY_PROFILES[quality])
+            if quality in profile_set:
+                profiles.append(profile_set[quality])
         
-        logging.info(f"Encoding profiles for {source_quality}: {[p.name for p in profiles]}")
+        logging.info(f"Encoding profiles for {source_quality} ({codec}): {[p.name for p in profiles]}")
         return profiles

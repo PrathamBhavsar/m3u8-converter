@@ -158,6 +158,7 @@ class HLSEncoder:
     ) -> bool:
         """
         Encode video to a specific quality level (video only, no audio).
+        Supports both H.264 and VP9 codecs.
         
         Args:
             input_video: Path to source video file
@@ -172,35 +173,63 @@ class HLSEncoder:
             quality_dir = output_dir / profile.folder_name
             quality_dir.mkdir(parents=True, exist_ok=True)
             
-            logging.info(f"Encoding {profile.name} quality to {quality_dir}")
+            logging.info(f"Encoding {profile.name} quality ({profile.codec}) to {quality_dir}")
             
-            # Build FFmpeg command for video-only HLS with fmp4
-            # Use relative paths for init and segments so they work in the playlist
-            command = [
-                "ffmpeg",
-                "-y",
-                "-i", str(input_video.absolute()),
-                # Video only - no audio
-                "-an",
-                # Video encoding
-                "-c:v", "libx264",
-                "-b:v", profile.video_bitrate,
-                "-maxrate", profile.video_bitrate,
-                "-bufsize", str(int(profile.video_bitrate.rstrip('k')) * 2) + "k",
-                "-vf", f"scale=-2:{profile.height}",  # Scale to target height, maintain aspect ratio
-                "-profile:v", "main",
-                "-level", "4.0",
-                # HLS settings
-                "-f", "hls",
-                "-hls_time", str(self.segment_duration),
-                "-hls_playlist_type", "vod",
-                "-hls_segment_type", "fmp4",
-                "-hls_fmp4_init_filename", "init.mp4",
-                "-hls_segment_filename", "video%d.m4s",
-                "-hls_flags", "independent_segments",
-                "-start_number", "1",
-                "video.m3u8"
-            ]
+            # Build FFmpeg command based on codec
+            if profile.codec == "vp9":
+                # VP9 encoding
+                command = [
+                    "ffmpeg",
+                    "-y",
+                    "-i", str(input_video.absolute()),
+                    # Video only - no audio
+                    "-an",
+                    # VP9 encoding
+                    "-c:v", "libvpx-vp9",
+                    "-b:v", profile.video_bitrate,
+                    "-maxrate", profile.video_bitrate,
+                    "-bufsize", str(int(profile.video_bitrate.rstrip('k')) * 2) + "k",
+                    "-vf", f"scale=-2:{profile.height}",
+                    "-row-mt", "1",  # Enable row-based multithreading for VP9
+                    "-cpu-used", "2",  # Speed vs quality tradeoff (0-5, higher is faster)
+                    # HLS settings
+                    "-f", "hls",
+                    "-hls_time", str(self.segment_duration),
+                    "-hls_playlist_type", "vod",
+                    "-hls_segment_type", "fmp4",
+                    "-hls_fmp4_init_filename", "init.mp4",
+                    "-hls_segment_filename", "video%d.m4s",
+                    "-hls_flags", "independent_segments",
+                    "-start_number", "1",
+                    "video.m3u8"
+                ]
+            else:
+                # H.264 encoding (default)
+                command = [
+                    "ffmpeg",
+                    "-y",
+                    "-i", str(input_video.absolute()),
+                    # Video only - no audio
+                    "-an",
+                    # Video encoding
+                    "-c:v", "libx264",
+                    "-b:v", profile.video_bitrate,
+                    "-maxrate", profile.video_bitrate,
+                    "-bufsize", str(int(profile.video_bitrate.rstrip('k')) * 2) + "k",
+                    "-vf", f"scale=-2:{profile.height}",
+                    "-profile:v", "main",
+                    "-level", "4.0",
+                    # HLS settings
+                    "-f", "hls",
+                    "-hls_time", str(self.segment_duration),
+                    "-hls_playlist_type", "vod",
+                    "-hls_segment_type", "fmp4",
+                    "-hls_fmp4_init_filename", "init.mp4",
+                    "-hls_segment_filename", "video%d.m4s",
+                    "-hls_flags", "independent_segments",
+                    "-start_number", "1",
+                    "video.m3u8"
+                ]
             
             logging.debug(f"FFmpeg command: {' '.join(command)}")
             
@@ -241,21 +270,38 @@ class HLSEncoder:
                     logging.warning(f"Init file not created by FFmpeg, creating manually...")
                     try:
                         # Create init segment with just the moov atom (video only)
-                        init_command = [
-                            "ffmpeg",
-                            "-y",
-                            "-i", str(input_video.absolute()),
-                            "-an",  # No audio
-                            "-c:v", "libx264",
-                            "-b:v", profile.video_bitrate,
-                            "-vf", f"scale=-2:{profile.height}",
-                            "-profile:v", "main",
-                            "-level", "4.0",
-                            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-                            "-f", "mp4",
-                            "-t", "0.001",  # Minimal duration to create init segment
-                            str(init_file.absolute())
-                        ]
+                        if profile.codec == "vp9":
+                            init_command = [
+                                "ffmpeg",
+                                "-y",
+                                "-i", str(input_video.absolute()),
+                                "-an",
+                                "-c:v", "libvpx-vp9",
+                                "-b:v", profile.video_bitrate,
+                                "-vf", f"scale=-2:{profile.height}",
+                                "-row-mt", "1",
+                                "-cpu-used", "2",
+                                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                                "-f", "mp4",
+                                "-t", "0.001",
+                                str(init_file.absolute())
+                            ]
+                        else:
+                            init_command = [
+                                "ffmpeg",
+                                "-y",
+                                "-i", str(input_video.absolute()),
+                                "-an",
+                                "-c:v", "libx264",
+                                "-b:v", profile.video_bitrate,
+                                "-vf", f"scale=-2:{profile.height}",
+                                "-profile:v", "main",
+                                "-level", "4.0",
+                                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                                "-f", "mp4",
+                                "-t", "0.001",
+                                str(init_file.absolute())
+                            ]
                         
                         init_result = subprocess.run(
                             init_command,
@@ -294,7 +340,8 @@ class HLSEncoder:
         self,
         output_dir: Path,
         profiles: List[QualityProfile],
-        has_audio: bool = True
+        has_audio: bool = True,
+        codec: str = "h264"
     ) -> bool:
         """
         Create master HLS playlist referencing all quality levels and audio.
@@ -303,17 +350,23 @@ class HLSEncoder:
             output_dir: Path to output directory (video/)
             profiles: List of QualityProfile objects that were encoded
             has_audio: Whether separate audio track exists
+            codec: Codec type ("h264" or "vp9")
             
         Returns:
             True if master playlist created successfully
         """
         try:
-            master_path = output_dir / "master_h264.m3u8"
+            master_filename = f"master_{codec}.m3u8"
+            master_path = output_dir / master_filename
             logging.info(f"Creating master playlist: {master_path}")
             
             with open(master_path, 'w') as f:
                 f.write("#EXTM3U\n")
-                f.write("#EXT-X-VERSION:7\n")
+                
+                if codec == "vp9":
+                    f.write("#EXT-X-VERSION:4\n")
+                else:
+                    f.write("#EXT-X-VERSION:3\n")
                 
                 # Add audio media group if audio exists
                 if has_audio:
@@ -338,16 +391,43 @@ class HLSEncoder:
                     # Calculate width maintaining 16:9 aspect ratio
                     width = int(profile.height * 16 / 9)
                     
-                    # Write stream info with audio reference
-                    if has_audio:
-                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                               f"RESOLUTION={width}x{profile.height},"
-                               f'CODECS="avc1.4d401f,mp4a.40.2",'
-                               f'AUDIO="audio"\n')
+                    # Determine codec string for playlist
+                    if codec == "vp9":
+                        # VP9 codec strings based on profile level
+                        vp9_codecs = {
+                            1080: "vp09.00.41.08.00.01.01.01.00",
+                            720: "vp09.00.31.08.00.01.01.01.00",
+                            480: "vp09.00.30.08.00.01.01.01.00",
+                            360: "vp09.00.21.08.00.01.01.01.00"
+                        }
+                        video_codec = vp9_codecs.get(profile.height, "vp09.00.30.08.00.01.01.01.00")
                     else:
+                        # H.264 codec strings based on profile level
+                        h264_codecs = {
+                            720: "avc1.64001f",
+                            360: "avc1.4d401e"
+                        }
+                        video_codec = h264_codecs.get(profile.height, "avc1.4d401f")
+                    
+                    # Write stream info - format matches requirements.md exactly
+                    if codec == "vp9":
+                        # VP9 format: only 1080p has AVERAGE-BANDWIDTH
+                        if profile.height == 1080:
+                            f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                                   f"AVERAGE-BANDWIDTH={profile.bandwidth},"
+                                   f"RESOLUTION={width}x{profile.height},"
+                                   f"FRAME-RATE=30,"
+                                   f'CODECS="{video_codec},mp4a.40.2"\n')
+                        else:
+                            f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                                   f"RESOLUTION={width}x{profile.height},"
+                                   f'CODECS="{video_codec},mp4a.40.2"\n')
+                    else:
+                        # H.264 format - simple format from requirements.md
                         f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
                                f"RESOLUTION={width}x{profile.height},"
-                               f'CODECS="avc1.4d401f"\n')
+                               f'CODECS="{video_codec},mp4a.40.2"\n')
+                    
                     f.write(f"{profile.folder_name}/video.m3u8\n")
                     
                     logging.debug(f"Added {profile.name} to master playlist")
