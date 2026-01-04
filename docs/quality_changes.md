@@ -77,9 +77,7 @@ Updated to skip FFmpeg validation for master playlists (playlist.m3u8, master_h2
 ```
 output_folder/
 ├── video/
-│   ├── playlist.m3u8        ← Unified master playlist (all qualities)
-│   ├── master_h264.m3u8     ← H.264 only master playlist
-│   ├── master_vp9.m3u8      ← VP9 only master playlist
+│   ├── playlist.m3u8        ← Single master playlist (all qualities)
 │   ├── 720p/
 │   │   ├── video.m3u8
 │   │   ├── init.mp4
@@ -116,8 +114,6 @@ output_folder/
 output_folder/
 ├── video/
 │   ├── playlist.m3u8
-│   ├── master_h264.m3u8
-│   ├── master_vp9.m3u8
 │   ├── 360p/
 │   ├── vp9_480p/
 │   └── vp9_360p/
@@ -131,8 +127,6 @@ output_folder/
 output_folder/
 ├── video/
 │   ├── playlist.m3u8
-│   ├── master_h264.m3u8
-│   ├── master_vp9.m3u8
 │   ├── 360p/
 │   └── vp9_360p/
 ├── audio/
@@ -187,8 +181,7 @@ Quality folders follow these patterns:
 - [x] H.264 limited to 720p and 360p only
 - [x] VP9 limited to 720p, 480p, and 360p only (NO 1080p)
 - [x] Maximum 5 qualities total
-- [x] Single unified playlist (playlist.m3u8) created
-- [x] Separate codec playlists (master_h264.m3u8, master_vp9.m3u8) also created
+- [x] Single master playlist (playlist.m3u8) created as only entry point
 - [x] Quality detection respects source resolution
 - [x] Lower resolution sources only generate available qualities
 - [x] Folder naming matches convention (h264_XXXp, vp9_XXXp)

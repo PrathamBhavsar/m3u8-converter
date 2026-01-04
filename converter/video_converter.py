@@ -311,32 +311,21 @@ class VideoConverter:
                 audio_segments = list(audio_dir.glob("audio*.m4s"))
                 all_segment_files.extend(audio_segments)
             
-            # Step 5: Create H.264 master playlist
-            h264_master_success = encoder.create_master_playlist(
-                video_dir, encoded_h264_profiles, has_audio=audio_success, codec="h264"
+            # Step 5: Create unified master playlist (playlist.m3u8) with all qualities
+            unified_success = encoder.create_unified_master_playlist(
+                video_dir, encoded_h264_profiles, encoded_vp9_profiles, has_audio=audio_success
             )
             
-            if not h264_master_success:
-                error_msg = "Failed to create H.264 master playlist"
+            if not unified_success:
+                error_msg = "Failed to create master playlist"
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
-                    playlist_file=video_dir / "master_h264.m3u8",
+                    playlist_file=video_dir / "playlist.m3u8",
                     init_file=video_dir / encoded_h264_profiles[0].folder_name / "init.mp4",
                     segment_files=all_segment_files,
                     error_message=error_msg
                 )
-            
-            # Step 6: Create VP9 master playlist if VP9 encoding succeeded
-            if encoded_vp9_profiles:
-                encoder.create_master_playlist(
-                    video_dir, encoded_vp9_profiles, has_audio=audio_success, codec="vp9"
-                )
-            
-            # Step 7: Create unified master playlist (playlist.m3u8) with all qualities
-            encoder.create_unified_master_playlist(
-                video_dir, encoded_h264_profiles, encoded_vp9_profiles, has_audio=audio_success
-            )
             
             # Success!
             # Use the unified playlist as the main playlist
