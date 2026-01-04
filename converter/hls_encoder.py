@@ -333,9 +333,8 @@ class HLSEncoder:
                     
                     # Determine codec string for playlist
                     if codec == "vp9":
-                        # VP9 codec strings based on profile level
+                        # VP9 codec strings based on profile level (NO 1080p)
                         vp9_codecs = {
-                            1080: "vp09.00.41.08.00.01.01.01.00",
                             720: "vp09.00.31.08.00.01.01.01.00",
                             480: "vp09.00.30.08.00.01.01.01.00",
                             360: "vp09.00.21.08.00.01.01.01.00"
@@ -349,44 +348,106 @@ class HLSEncoder:
                         }
                         video_codec = h264_codecs.get(profile.height, "avc1.4d401f")
                     
-                    # Write stream info - format matches requirements.md exactly
-                    if codec == "vp9":
-                        # VP9 format: only 1080p has AVERAGE-BANDWIDTH
-                        if profile.height == 1080:
-                            if has_audio:
-                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                                       f"AVERAGE-BANDWIDTH={profile.bandwidth},"
-                                       f"RESOLUTION={width}x{profile.height},"
-                                       f"FRAME-RATE=30,"
-                                       f'CODECS="{video_codec},mp4a.40.2",'
-                                       f'AUDIO="audio"\n')
-                            else:
-                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                                       f"AVERAGE-BANDWIDTH={profile.bandwidth},"
-                                       f"RESOLUTION={width}x{profile.height},"
-                                       f"FRAME-RATE=30,"
-                                       f'CODECS="{video_codec}"\n')
-                        else:
-                            if has_audio:
-                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                                       f"RESOLUTION={width}x{profile.height},"
-                                       f'CODECS="{video_codec},mp4a.40.2",'
-                                       f'AUDIO="audio"\n')
-                            else:
-                                f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                                       f"RESOLUTION={width}x{profile.height},"
-                                       f'CODECS="{video_codec}"\n')
+                    # Write stream info
+                    if has_audio:
+                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                               f"RESOLUTION={width}x{profile.height},"
+                               f'CODECS="{video_codec},mp4a.40.2",'
+                               f'AUDIO="audio"\n')
                     else:
-                        # H.264 format - simple format from requirements.md
-                        if has_audio:
-                            f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                                   f"RESOLUTION={width}x{profile.height},"
-                                   f'CODECS="{video_codec},mp4a.40.2",'
-                                   f'AUDIO="audio"\n')
-                        else:
-                            f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
-                                   f"RESOLUTION={width}x{profile.height},"
-                                   f'CODECS="{video_codec}"\n')
+                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                               f"RESOLUTION={width}x{profile.height},"
+                               f'CODECS="{video_codec}"\n')
+                    
+                    f.write(f"{profile.folder_name}/video.m3u8\n")
+            
+            return True
+            
+        except Exception:
+            return False
+    
+    def create_unified_master_playlist(
+        self,
+        output_dir: Path,
+        h264_profiles: List[QualityProfile],
+        vp9_profiles: List[QualityProfile],
+        has_audio: bool = True
+    ) -> bool:
+        """
+        Create a single unified master playlist (playlist.m3u8) with all qualities.
+        This combines both H.264 and VP9 streams into one playlist.
+        
+        Args:
+            output_dir: Path to output directory (video/)
+            h264_profiles: List of H.264 QualityProfile objects
+            vp9_profiles: List of VP9 QualityProfile objects
+            has_audio: Whether separate audio track exists
+            
+        Returns:
+            True if master playlist created successfully
+        """
+        try:
+            master_path = output_dir / "playlist.m3u8"
+            
+            with open(master_path, 'w') as f:
+                f.write("#EXTM3U\n")
+                f.write("#EXT-X-VERSION:4\n")
+                
+                # Add audio media group if audio exists
+                if has_audio:
+                    audio_path = output_dir.parent / "audio" / "aac.m3u8"
+                    if audio_path.exists():
+                        f.write('#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",'
+                               'DEFAULT=YES,AUTOSELECT=YES,LANGUAGE="en",'
+                               'URI="../audio/aac.m3u8"\n')
+                
+                # Add H.264 quality levels first (sorted by bandwidth descending)
+                for profile in sorted(h264_profiles, key=lambda p: p.bandwidth, reverse=True):
+                    quality_dir = output_dir / profile.folder_name
+                    playlist_path = quality_dir / "video.m3u8"
+                    
+                    if not playlist_path.exists():
+                        continue
+                    
+                    width = int(profile.height * 16 / 9)
+                    h264_codecs = {720: "avc1.64001f", 360: "avc1.4d401e"}
+                    video_codec = h264_codecs.get(profile.height, "avc1.4d401f")
+                    
+                    if has_audio:
+                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                               f"RESOLUTION={width}x{profile.height},"
+                               f'CODECS="{video_codec},mp4a.40.2",'
+                               f'AUDIO="audio"\n')
+                    else:
+                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                               f"RESOLUTION={width}x{profile.height},"
+                               f'CODECS="{video_codec}"\n')
+                    
+                    f.write(f"{profile.folder_name}/video.m3u8\n")
+                
+                # Add VP9 quality levels (sorted by bandwidth descending)
+                for profile in sorted(vp9_profiles, key=lambda p: p.bandwidth, reverse=True):
+                    quality_dir = output_dir / profile.folder_name
+                    playlist_path = quality_dir / "video.m3u8"
+                    
+                    if not playlist_path.exists():
+                        continue
+                    
+                    width = int(profile.height * 16 / 9)
+                    vp9_codecs = {720: "vp09.00.31.08.00.01.01.01.00",
+                                 480: "vp09.00.30.08.00.01.01.01.00",
+                                 360: "vp09.00.21.08.00.01.01.01.00"}
+                    video_codec = vp9_codecs.get(profile.height, "vp09.00.30.08.00.01.01.01.00")
+                    
+                    if has_audio:
+                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                               f"RESOLUTION={width}x{profile.height},"
+                               f'CODECS="{video_codec},mp4a.40.2",'
+                               f'AUDIO="audio"\n')
+                    else:
+                        f.write(f"#EXT-X-STREAM-INF:BANDWIDTH={profile.bandwidth},"
+                               f"RESOLUTION={width}x{profile.height},"
+                               f'CODECS="{video_codec}"\n')
                     
                     f.write(f"{profile.folder_name}/video.m3u8\n")
             

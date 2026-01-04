@@ -32,15 +32,16 @@ class QualityProfile:
         return f"{self.codec}_{self.name}"
 
 
-# Standard quality profiles for H.264 (from requirements.md)
+# Standard quality profiles for H.264 (from quality_changes.md)
+# Limited to: 360p, 720p only (max 2 qualities)
 QUALITY_PROFILES_H264 = {
     "720p": QualityProfile("720p", 720, "2077k", "128k", 2077570, "h264"),
     "360p": QualityProfile("360p", 360, "800k", "128k", 800000, "h264"),
 }
 
-# Standard quality profiles for VP9
+# Standard quality profiles for VP9 (from quality_changes.md)
+# Limited to: 360p, 480p, 720p only (NO 1080p - max 3 qualities)
 QUALITY_PROFILES_VP9 = {
-    "1080p": QualityProfile("1080p", 1080, "2905k", "128k", 2905000, "vp9"),
     "720p": QualityProfile("720p", 720, "1291k", "128k", 1290999, "vp9"),
     "480p": QualityProfile("480p", 480, "768k", "128k", 768242, "vp9"),
     "360p": QualityProfile("360p", 360, "594k", "128k", 594105, "vp9"),
@@ -49,8 +50,12 @@ QUALITY_PROFILES_VP9 = {
 # Backward compatibility
 QUALITY_PROFILES = QUALITY_PROFILES_H264
 
-# Quality order from highest to lowest
-QUALITY_ORDER = ["1080p", "720p", "480p", "360p"]
+# Quality order from highest to lowest (max 5 total across both codecs)
+# H.264: 720p, 360p (2 qualities)
+# VP9: 720p, 480p, 360p (3 qualities)
+QUALITY_ORDER_H264 = ["720p", "360p"]
+QUALITY_ORDER_VP9 = ["720p", "480p", "360p"]
+QUALITY_ORDER = ["720p", "480p", "360p"]  # Combined for source detection
 
 
 class VideoQualityDetector:
@@ -146,14 +151,13 @@ class VideoQualityDetector:
             video_info: VideoInfo object
             
         Returns:
-            Quality string (e.g., "1080p", "720p")
+            Quality string (e.g., "720p", "480p", "360p")
         """
         height = video_info.height
         
         # Use ranges to properly categorize video quality
-        if height >= 1000:  # 1080p and above
-            quality = "1080p"
-        elif height >= 600:  # 720p range
+        # Note: 1080p is NOT included as we don't encode to 1080p anymore
+        if height >= 600:  # 720p and above
             quality = "720p"
         elif height >= 420:  # 480p range
             quality = "480p"
@@ -168,6 +172,10 @@ class VideoQualityDetector:
         Get list of quality profiles to encode based on source quality.
         Only encode qualities equal to or lower than source.
         
+        Quality limits per quality_changes.md:
+        - H.264: 360p, 720p only (max 2)
+        - VP9: 360p, 480p, 720p only (max 3, NO 1080p)
+        
         Args:
             source_quality: Source video quality (e.g., "720p")
             codec: Codec to use ("h264" or "vp9")
@@ -177,18 +185,34 @@ class VideoQualityDetector:
         """
         profiles = []
         
-        # Select the appropriate profile set
-        profile_set = QUALITY_PROFILES_VP9 if codec == "vp9" else QUALITY_PROFILES_H264
+        # Select the appropriate profile set and quality order
+        if codec == "vp9":
+            profile_set = QUALITY_PROFILES_VP9
+            quality_order = QUALITY_ORDER_VP9
+        else:
+            profile_set = QUALITY_PROFILES_H264
+            quality_order = QUALITY_ORDER_H264
         
-        # Find the index of source quality
-        try:
-            source_index = QUALITY_ORDER.index(source_quality)
-        except ValueError:
-            logging.error(f"Unknown source quality: {source_quality}")
-            return profiles
+        # Find the index of source quality in the appropriate order
+        # If source quality not in list, find the closest match
+        if source_quality in quality_order:
+            source_index = quality_order.index(source_quality)
+        else:
+            # Map source quality to available qualities
+            # e.g., 1080p -> 720p (highest available), 480p -> 480p for VP9, 360p for H264
+            quality_height_map = {"720p": 720, "480p": 480, "360p": 360}
+            source_height = quality_height_map.get(source_quality, 360)
+            
+            # Find first quality that is <= source height
+            source_index = 0
+            for i, q in enumerate(quality_order):
+                q_height = quality_height_map.get(q, 360)
+                if q_height <= source_height:
+                    source_index = i
+                    break
         
         # Include all qualities from source quality downwards
-        for quality in QUALITY_ORDER[source_index:]:
+        for quality in quality_order[source_index:]:
             if quality in profile_set:
                 profiles.append(profile_set[quality])
         

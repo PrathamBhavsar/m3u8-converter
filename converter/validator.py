@@ -241,7 +241,8 @@ class Validator:
         # Note: Skip FFmpeg validation for master playlists with separate audio tracks
         # as FFmpeg may have issues resolving relative paths on Windows
         ffmpeg_playable = True
-        if conversion_result.playlist_file.name == "master_h264.m3u8":
+        playlist_name = conversion_result.playlist_file.name
+        if playlist_name in ["master_h264.m3u8", "master_vp9.m3u8", "playlist.m3u8"]:
             logging.debug("Skipping FFmpeg validation for master playlist (has separate audio track)")
         else:
             ffmpeg_playable = self._validate_with_ffmpeg(conversion_result.playlist_file)
