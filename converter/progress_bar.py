@@ -13,7 +13,8 @@ class ProgressBar:
         "Separating audio",
         "Creating HLS format",
         "Creating VP9 format",
-        "Creating thumbnails"
+        "Creating thumbnails",
+        "Creating trailer"
     ]
     
     def __init__(self, video_name: str, total_videos: int, current_video: int):
@@ -31,6 +32,7 @@ class ProgressBar:
         self.current_phase = 0
         self.total_phases = len(self.PHASES)
         self.elapsed_time: Optional[float] = None
+        self._last_line_length = 0
     
     def start(self):
         """Start processing a video."""
@@ -65,15 +67,20 @@ class ProgressBar:
             success: Whether the processing was successful
             elapsed_time: Optional elapsed time in seconds
         """
+        # Clear the current line
+        self._clear_line()
+        
         time_str = ""
         if elapsed_time is not None:
             time_str = f" ({self._format_time(elapsed_time)})"
         
         if success:
-            print(f"\n[OK] Finished: {self.video_name}{time_str}")
+            # Show completed progress bar
+            bar = '#' * 40
+            print(f"[{bar}] 100% - Complete{' ' * 20}")
+            print(f"[OK] Finished: {self.video_name}{time_str}\n")
         else:
-            print(f"\n[FAILED] {self.video_name}")
-        print()
+            print(f"[FAILED] {self.video_name}\n")
     
     def _format_time(self, seconds: float) -> str:
         """
@@ -97,8 +104,13 @@ class ProgressBar:
             secs = int(seconds % 60)
             return f"{hours}h {minutes}m {secs}s"
     
+    def _clear_line(self):
+        """Clear the current line."""
+        # Move cursor to beginning and overwrite with spaces
+        print(f"\r{' ' * self._last_line_length}\r", end='', flush=True)
+    
     def _render(self):
-        """Render the progress bar."""
+        """Render the progress bar on a single line."""
         if self.current_phase == 0:
             phase_text = "Starting..."
         elif self.current_phase > self.total_phases:
@@ -112,10 +124,11 @@ class ProgressBar:
         filled = int(bar_width * progress)
         bar = '#' * filled + '-' * (bar_width - filled)
         
-        # Print progress bar
+        # Build the line
         percentage = int(progress * 100)
-        print(f"\r[{bar}] {percentage:3d}% - {phase_text:<30}", end='', flush=True)
+        line = f"[{bar}] {percentage:3d}% - {phase_text:<25}"
         
-        # Move to next line after phase completes
-        if self.current_phase > 0 and self.current_phase <= self.total_phases:
-            print()
+        # Clear previous content and print new line (stay on same line)
+        self._clear_line()
+        print(f"\r{line}", end='', flush=True)
+        self._last_line_length = len(line)

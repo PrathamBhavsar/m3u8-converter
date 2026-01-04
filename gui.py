@@ -332,51 +332,45 @@ class ConverterGUI:
         self.conversion_thread.start()
     
     def _run_conversion(self):
-        """Run the main.py conversion script in a subprocess."""
+        """Run the main.py conversion script in a separate terminal window."""
         try:
             # Reset stop flag
             self.stop_requested = False
             
-            # Run main.py as subprocess
-            self.conversion_process = subprocess.Popen(
-                [sys.executable, "main.py"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True,
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0
-            )
-            
-            # Read output line by line
-            for line in self.conversion_process.stdout:
-                self.root.after(0, self._log, line.rstrip())
-            
-            # Wait for process to complete
-            return_code = self.conversion_process.wait()
-            
-            if return_code == 0:
-                self.root.after(0, self._log, "=" * 60)
-                self.root.after(0, self._log, "Conversion completed successfully!")
-                self.root.after(0, self.status_var.set, "Conversion completed")
-                self.root.after(
-                    0, 
-                    messagebox.showinfo, 
-                    "Success", 
-                    "Conversion completed successfully!"
+            # Run main.py in a separate terminal window for logs
+            if sys.platform == "win32":
+                # On Windows, open a new cmd window that stays open after completion
+                # Using /k keeps the window open, pause at the end for user to see results
+                self.conversion_process = subprocess.Popen(
+                    ["cmd", "/c", "start", "Video Converter - Logs", "cmd", "/k", 
+                     f"python main.py && echo. && echo Press any key to close... && pause >nul"],
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
                 )
-            elif return_code == 130:
-                self.root.after(0, self._log, "Conversion stopped by user")
-                self.root.after(0, self.status_var.set, "Stopped")
             else:
-                self.root.after(0, self._log, f"Conversion failed with exit code {return_code}")
-                self.root.after(0, self.status_var.set, "Conversion failed")
-                self.root.after(
-                    0,
-                    messagebox.showerror,
-                    "Error",
-                    f"Conversion failed with exit code {return_code}"
+                # On Unix-like systems, run in subprocess
+                self.conversion_process = subprocess.Popen(
+                    [sys.executable, "main.py"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
                 )
+                # Read output line by line for non-Windows
+                for line in self.conversion_process.stdout:
+                    self.root.after(0, self._log, line.rstrip())
+            
+            self.root.after(0, self._log, "Conversion started in separate terminal window...")
+            self.root.after(0, self._log, "Check the 'Video Converter - Logs' window for progress.")
+            self.root.after(0, self.status_var.set, "Running - see Logs window")
+            
+            # Wait for the start command to finish (it returns immediately after opening the window)
+            self.conversion_process.wait()
+            
+            # On Windows, the actual conversion runs in the spawned window
+            # We can't easily track its completion, so just update status
+            if sys.platform == "win32":
+                self.root.after(0, self._log, "Logs window opened. Monitor progress there.")
         
         except Exception as e:
             self.root.after(0, self._log, f"Error running conversion: {e}")
