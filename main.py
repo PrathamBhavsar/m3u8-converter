@@ -168,13 +168,19 @@ def main():
                     stats.record_failure()
                     continue
                 
-                # Copy non-MP4 files
+                # Copy non-MP4 files (including data.json)
                 file_processor.copy_non_mp4_files(folder, output_folder)
                 
                 # Phase 6: Creating thumbnails
                 progress.next_phase("Creating thumbnails")
                 thumbnail_percentages = config.thumbnail_video_percentage
                 converter.extract_thumbnails(mp4_file, output_folder, thumbnail_percentages)
+                
+                # Phase 7: Creating trailer (only if video > 60 seconds)
+                video_duration = converter.get_video_duration(mp4_file)
+                if video_duration and video_duration > 60:
+                    progress.next_phase("Creating trailer")
+                    converter.generate_trailer(mp4_file, output_folder)
                 
                 # Track output size
                 output_size = file_processor.get_folder_size(output_folder)

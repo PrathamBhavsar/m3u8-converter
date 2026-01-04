@@ -59,6 +59,61 @@ class VideoConverter:
             logging.error(f"Error getting video duration: {e}")
             return None
     
+    def generate_trailer(self, video_path: Path, output_folder: Path, duration: float = 4.0) -> bool:
+        """
+        Generate a highly compressed, muted 4-second trailer from the video.
+        
+        Args:
+            video_path: Path to the source video file
+            output_folder: Path to the folder where trailer should be saved (same level as video/)
+            duration: Duration of the trailer in seconds (default: 4)
+            
+        Returns:
+            True if trailer was generated successfully, False otherwise
+        """
+        try:
+            video_duration = self.get_video_duration(video_path)
+            if video_duration is None:
+                return False
+            
+            # Start at 10% of the video to skip intros
+            start_time = video_duration * 0.10
+            
+            output_file = output_folder / "trailer.mp4"
+            
+            # FFmpeg command for highly compressed, muted trailer
+            # Using low resolution (360p), low bitrate, and no audio
+            command = [
+                "ffmpeg",
+                "-y",  # Overwrite output
+                "-ss", str(start_time),  # Seek to start position
+                "-i", str(video_path.absolute()),
+                "-t", str(duration),  # Duration of clip
+                "-an",  # No audio
+                "-vf", "scale=-2:360",  # Scale to 360p height, maintain aspect ratio
+                "-c:v", "libx264",  # H.264 codec
+                "-preset", "slow",  # Better compression
+                "-crf", "35",  # High compression (higher = smaller file, lower quality)
+                "-profile:v", "baseline",  # Maximum compatibility
+                "-level", "3.0",
+                "-movflags", "+faststart",  # Web optimization
+                str(output_file.absolute())
+            ]
+            
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120
+            )
+            
+            return result.returncode == 0 and output_file.exists()
+            
+        except Exception as e:
+            logging.error(f"Error generating trailer: {e}")
+            return False
+    
     def extract_thumbnails(self, video_path: Path, output_folder: Path, percentages: List[int]) -> bool:
         """
         Extract thumbnails from video at specified percentage points.
