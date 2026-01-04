@@ -215,7 +215,7 @@ class VideoConverter:
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
-                    playlist_file=output_dir / "video" / "master_h264.m3u8",
+                    playlist_file=output_dir / "video" / "playlist.m3u8",
                     init_file=output_dir / "video" / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
@@ -226,7 +226,7 @@ class VideoConverter:
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
-                    playlist_file=output_dir / "video" / "master_h264.m3u8",
+                    playlist_file=output_dir / "video" / "playlist.m3u8",
                     init_file=output_dir / "video" / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
@@ -244,7 +244,7 @@ class VideoConverter:
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
-                    playlist_file=video_dir / "master_h264.m3u8",
+                    playlist_file=video_dir / "playlist.m3u8",
                     init_file=video_dir / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
@@ -258,7 +258,7 @@ class VideoConverter:
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
-                    playlist_file=video_dir / "master_h264.m3u8",
+                    playlist_file=video_dir / "playlist.m3u8",
                     init_file=video_dir / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
@@ -286,8 +286,8 @@ class VideoConverter:
                 return ConversionResult(
                     success=False,
                     output_path=output_dir,
-                    playlist_file=video_dir / "master_h264.m3u8",
-                    init_file=video_dir / "h264_720p" / "init.mp4",
+                    playlist_file=video_dir / "playlist.m3u8",
+                    init_file=video_dir / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
                 )
@@ -347,7 +347,7 @@ class VideoConverter:
             return ConversionResult(
                 success=False,
                 output_path=output_dir,
-                playlist_file=output_dir / "video" / "master_h264.m3u8",
+                playlist_file=output_dir / "video" / "playlist.m3u8",
                 init_file=output_dir / "video" / "720p" / "init.mp4",
                 segment_files=[],
                 error_message=error_msg
