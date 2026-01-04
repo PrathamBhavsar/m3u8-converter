@@ -80,11 +80,11 @@ output_folder/
 │   ├── playlist.m3u8        ← Unified master playlist (all qualities)
 │   ├── master_h264.m3u8     ← H.264 only master playlist
 │   ├── master_vp9.m3u8      ← VP9 only master playlist
-│   ├── h264_720p/
+│   ├── 720p/
 │   │   ├── video.m3u8
 │   │   ├── init.mp4
 │   │   └── video1.m4s, video2.m4s, ...
-│   ├── h264_360p/
+│   ├── 360p/
 │   │   ├── video.m3u8
 │   │   ├── init.mp4
 │   │   └── video1.m4s, video2.m4s, ...
@@ -118,7 +118,7 @@ output_folder/
 │   ├── playlist.m3u8
 │   ├── master_h264.m3u8
 │   ├── master_vp9.m3u8
-│   ├── h264_360p/
+│   ├── 360p/
 │   ├── vp9_480p/
 │   └── vp9_360p/
 ├── audio/
@@ -133,7 +133,7 @@ output_folder/
 │   ├── playlist.m3u8
 │   ├── master_h264.m3u8
 │   ├── master_vp9.m3u8
-│   ├── h264_360p/
+│   ├── 360p/
 │   └── vp9_360p/
 ├── audio/
 └── ...
@@ -148,9 +148,9 @@ output_folder/
 #EXT-X-VERSION:4
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",DEFAULT=YES,AUTOSELECT=YES,LANGUAGE="en",URI="../audio/aac.m3u8"
 #EXT-X-STREAM-INF:BANDWIDTH=2077570,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2",AUDIO="audio"
-h264_720p/video.m3u8
+720p/video.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2",AUDIO="audio"
-h264_360p/video.m3u8
+360p/video.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=1290999,RESOLUTION=1280x720,CODECS="vp09.00.31.08.00.01.01.01.00,mp4a.40.2",AUDIO="audio"
 vp9_720p/video.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=768242,RESOLUTION=854x480,CODECS="vp09.00.30.08.00.01.01.01.00,mp4a.40.2",AUDIO="audio"
@@ -175,10 +175,10 @@ vp9_360p/video.m3u8
 
 ## Folder Naming Convention
 
-Quality folders follow the pattern: `{codec}_{resolution}`
+Quality folders follow these patterns:
 
-- **H.264**: `h264_720p`, `h264_360p`
-- **VP9**: `vp9_720p`, `vp9_480p`, `vp9_360p`
+- **H.264**: `720p`, `360p` (resolution only, no codec prefix)
+- **VP9**: `vp9_720p`, `vp9_480p`, `vp9_360p` (with codec prefix)
 
 ---
 

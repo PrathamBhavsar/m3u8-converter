@@ -74,44 +74,68 @@ class VideoConverter:
         try:
             video_duration = self.get_video_duration(video_path)
             if video_duration is None:
+                logging.error("Failed to get video duration for trailer generation")
                 return False
             
             # Start at 10% of the video to skip intros
-            start_time = video_duration * 0.10
+            # Ensure we don't seek past the video duration
+            start_time = min(video_duration * 0.10, max(0, video_duration - duration - 1))
             
             output_file = output_folder / "trailer.mp4"
             
             # FFmpeg command for highly compressed, muted trailer
             # Using low resolution (360p), low bitrate, and no audio
+            # Place -ss after -i for more accurate seeking (slower but more reliable)
             command = [
                 "ffmpeg",
                 "-y",  # Overwrite output
-                "-ss", str(start_time),  # Seek to start position
                 "-i", str(video_path.absolute()),
+                "-ss", str(start_time),  # Seek after input for accuracy
                 "-t", str(duration),  # Duration of clip
                 "-an",  # No audio
                 "-vf", "scale=-2:360",  # Scale to 360p height, maintain aspect ratio
                 "-c:v", "libx264",  # H.264 codec
-                "-preset", "slow",  # Better compression
+                "-preset", "medium",  # Balance between speed and compression
                 "-crf", "35",  # High compression (higher = smaller file, lower quality)
                 "-profile:v", "baseline",  # Maximum compatibility
                 "-level", "3.0",
                 "-movflags", "+faststart",  # Web optimization
+                "-pix_fmt", "yuv420p",  # Ensure compatibility
                 str(output_file.absolute())
             ]
+            
+            logging.info(f"Generating trailer: start={start_time:.2f}s, duration={duration}s")
             
             result = subprocess.run(
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=120
+                timeout=300  # Increased timeout for longer videos
             )
             
-            return result.returncode == 0 and output_file.exists()
+            if result.returncode != 0:
+                logging.error(f"FFmpeg trailer generation failed: {result.stderr}")
+                return False
             
+            if not output_file.exists():
+                logging.error("Trailer file was not created")
+                return False
+            
+            # Verify the file has content
+            if output_file.stat().st_size == 0:
+                logging.error("Trailer file is empty")
+                output_file.unlink()  # Remove empty file
+                return False
+            
+            logging.info(f"Trailer generated successfully: {output_file.name}")
+            return True
+            
+        except subprocess.TimeoutExpired:
+            logging.error("Trailer generation timed out")
+            return False
         except Exception as e:
-            logging.error(f"Error generating trailer: {e}")
+            logging.error(f"Error generating trailer: {e}", exc_info=True)
             return False
     
     def extract_thumbnails(self, video_path: Path, output_folder: Path, percentages: List[int]) -> bool:
@@ -192,7 +216,7 @@ class VideoConverter:
                     success=False,
                     output_path=output_dir,
                     playlist_file=output_dir / "video" / "master_h264.m3u8",
-                    init_file=output_dir / "video" / "h264_720p" / "init.mp4",
+                    init_file=output_dir / "video" / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
                 )
@@ -203,7 +227,7 @@ class VideoConverter:
                     success=False,
                     output_path=output_dir,
                     playlist_file=output_dir / "video" / "master_h264.m3u8",
-                    init_file=output_dir / "video" / "h264_720p" / "init.mp4",
+                    init_file=output_dir / "video" / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
                 )
@@ -221,7 +245,7 @@ class VideoConverter:
                     success=False,
                     output_path=output_dir,
                     playlist_file=video_dir / "master_h264.m3u8",
-                    init_file=video_dir / "h264_720p" / "init.mp4",
+                    init_file=video_dir / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
                 )
@@ -235,7 +259,7 @@ class VideoConverter:
                     success=False,
                     output_path=output_dir,
                     playlist_file=video_dir / "master_h264.m3u8",
-                    init_file=video_dir / "h264_720p" / "init.mp4",
+                    init_file=video_dir / "720p" / "init.mp4",
                     segment_files=[],
                     error_message=error_msg
                 )
@@ -335,7 +359,7 @@ class VideoConverter:
                 success=False,
                 output_path=output_dir,
                 playlist_file=output_dir / "video" / "master_h264.m3u8",
-                init_file=output_dir / "video" / "h264_720p" / "init.mp4",
+                init_file=output_dir / "video" / "720p" / "init.mp4",
                 segment_files=[],
                 error_message=error_msg
             )

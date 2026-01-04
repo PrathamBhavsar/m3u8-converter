@@ -178,9 +178,13 @@ def main():
                 
                 # Phase 7: Creating trailer (only if video > 60 seconds)
                 video_duration = converter.get_video_duration(mp4_file)
-                if video_duration and video_duration > 60:
+                if video_duration is not None and video_duration > 60:
                     progress.next_phase("Creating trailer")
-                    converter.generate_trailer(mp4_file, output_folder)
+                    trailer_success = converter.generate_trailer(mp4_file, output_folder)
+                    if not trailer_success:
+                        print(f"[WARNING] Failed to generate trailer for {folder.name}")
+                elif video_duration is not None:
+                    logging.debug(f"Skipping trailer: video duration {video_duration:.1f}s <= 60s")
                 
                 # Track output size
                 output_size = file_processor.get_folder_size(output_folder)

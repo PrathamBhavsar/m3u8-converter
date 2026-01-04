@@ -28,8 +28,15 @@ class QualityProfile:
     
     @property
     def folder_name(self) -> str:
-        """Get the folder name for this quality."""
-        return f"{self.codec}_{self.name}"
+        """Get the folder name for this quality.
+        
+        H.264 folders: 720p, 360p (without codec prefix)
+        VP9 folders: vp9_720p, vp9_480p, vp9_360p (with codec prefix)
+        """
+        if self.codec == "h264":
+            return self.name  # Just "720p" or "360p"
+        else:
+            return f"{self.codec}_{self.name}"  # "vp9_720p", etc.
 
 
 # Standard quality profiles for H.264 (from quality_changes.md)
