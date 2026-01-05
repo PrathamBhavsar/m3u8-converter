@@ -167,12 +167,14 @@ class VideoConverter:
                     output_file = output_folder / f"thumbnail{idx}.jpg"
                     
                     # FFmpeg command to extract frame at specific timestamp
+                    # Scale to 480p height, maintain aspect ratio (-2 ensures even width)
                     command = [
                         "ffmpeg",
                         "-y",  # Overwrite output files
                         "-ss", str(timestamp),  # Seek to timestamp
                         "-i", str(video_path.absolute()),
                         "-vframes", "1",  # Extract 1 frame
+                        "-vf", "scale=-2:480",  # Scale to 480p height
                         "-q:v", "2",  # High quality (2-5 is good, lower is better)
                         str(output_file.absolute())
                     ]

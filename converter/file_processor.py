@@ -43,19 +43,30 @@ class FileProcessor:
     
     def has_single_mp4_file(self, folder: Path) -> Tuple[bool, str]:
         """
-        Check if a folder contains exactly one MP4 file.
+        Check if a folder contains exactly one MP4 file in its video/ subfolder.
+        
+        Expected structure:
+            folder/
+            |_video/
+            |   |_video.mp4
+            |_data.json
         
         Args:
             folder: Path to the folder to check
             
         Returns:
             Tuple of (is_valid: bool, reason: str)
-            - (True, "valid") if folder has exactly 1 MP4 file
-            - (False, "no_mp4") if folder has no MP4 files
-            - (False, "multiple_mp4") if folder has multiple MP4 files
+            - (True, "valid") if video/ subfolder has exactly 1 MP4 file
+            - (False, "no_mp4") if video/ subfolder has no MP4 files or doesn't exist
+            - (False, "multiple_mp4") if video/ subfolder has multiple MP4 files
         """
         try:
-            mp4_files = list(folder.glob("*.mp4"))
+            video_folder = folder / "video"
+            
+            if not video_folder.exists() or not video_folder.is_dir():
+                return False, "no_mp4"
+            
+            mp4_files = list(video_folder.glob("*.mp4"))
             mp4_count = len(mp4_files)
             
             if mp4_count == 0:
@@ -69,16 +80,27 @@ class FileProcessor:
     
     def get_mp4_file(self, folder: Path) -> Optional[Path]:
         """
-        Retrieve the MP4 file path from a folder.
+        Retrieve the MP4 file path from a folder's video/ subfolder.
+        
+        Expected structure:
+            folder/
+            |_video/
+            |   |_video.mp4
+            |_data.json
         
         Args:
-            folder: Path to the folder containing MP4 file
+            folder: Path to the folder containing video/ subfolder
             
         Returns:
             Path to the MP4 file, or None if no MP4 file exists or multiple exist
         """
         try:
-            mp4_files = list(folder.glob("*.mp4"))
+            video_folder = folder / "video"
+            
+            if not video_folder.exists() or not video_folder.is_dir():
+                return None
+            
+            mp4_files = list(video_folder.glob("*.mp4"))
             if len(mp4_files) == 1:
                 return mp4_files[0]
             else:
@@ -86,9 +108,10 @@ class FileProcessor:
         except Exception:
             return None
     
-    def copy_non_mp4_files(self, source_folder: Path, dest_folder: Path) -> None:
+    def copy_non_video_folder_files(self, source_folder: Path, dest_folder: Path) -> None:
         """
-        Copy non-MP4 files (jpg, json, and other files) from source to destination.
+        Copy non-video files (data.json, etc.) from source to destination.
+        Copies files from the root of source_folder, excluding the video/ subfolder.
         
         Args:
             source_folder: Path to the source folder
@@ -99,7 +122,11 @@ class FileProcessor:
                 return
             
             for item in source_folder.iterdir():
-                if item.is_file() and item.suffix.lower() != '.mp4':
+                # Skip the video subfolder
+                if item.is_dir() and item.name.lower() == 'video':
+                    continue
+                
+                if item.is_file():
                     try:
                         dest_path = dest_folder / item.name
                         shutil.copy2(item, dest_path)
@@ -108,6 +135,17 @@ class FileProcessor:
                 
         except Exception:
             pass
+    
+    def copy_non_mp4_files(self, source_folder: Path, dest_folder: Path) -> None:
+        """
+        Copy non-MP4 files from source to destination.
+        This is an alias for copy_non_video_folder_files for backward compatibility.
+        
+        Args:
+            source_folder: Path to the source folder
+            dest_folder: Path to the destination folder
+        """
+        self.copy_non_video_folder_files(source_folder, dest_folder)
     
     def create_output_structure(self, folder_name: str) -> Path:
         """
